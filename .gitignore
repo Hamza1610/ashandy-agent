@@ -1,0 +1,8 @@
+# Git Ignore File
+
+# This file specifies patterns to ignore, like .env, __pycache__, etc.
+# It should entail standard Python project ignores.
+
+.env
+.env.*
+__pycache__

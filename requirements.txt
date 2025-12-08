@@ -1,0 +1,6 @@
+# Project Dependencies
+
+# This file lists dependencies like fastapi, uvicorn, langgraph, langchain,
+# sqlalchemy, psycopg2, pinecone-client, redis, pydantic, fpdf, etc.
+# It should entail pip-installable package versions.
+

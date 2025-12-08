@@ -1,0 +1,5 @@
+# Render/Cloud deployment configuration.
+
+# This file defines deployment specs for Render or similar platforms.
+# It should entail service types, env vars, and build commands if using Render.
+
