@@ -1,4 +1,4 @@
-# ASHY (Sabi) - AI Sales & Help Assistant
+# ashandy-agent (Sabi) - AI Sales & Help Assistant
 
 **Version:** 1.0  
 **Date:** December 2025  
@@ -28,7 +28,7 @@
 
 ## 🎯 Executive Summary
 
-ASHY is a **multimodal, agentic retail assistant** designed for cosmetics businesses. It bridges online browsing and in-store consultation through WhatsApp and Instagram, featuring:
+ashandy-agent is a **multimodal, agentic retail assistant** designed for cosmetics businesses. It bridges online browsing and in-store consultation through WhatsApp and Instagram, featuring:
 
 - ✅ **Visual Search**: Upload product images for instant identification (SAM + DINOv3)
 - ✅ **Semantic Memory**: Remembers customer preferences (skin type, budget, size)
@@ -72,7 +72,7 @@ Retail businesses (especially cosmetics) face:
 
 ## 🏗️ System Architecture
 
-![Alt text](https://res.cloudinary.com/dcq7l1xjn/image/upload/v1765201484/arch_ashy_nskrxc.png)
+![Alt text](https://res.cloudinary.com/dcq7l1xjn/image/upload/v1765201484/arch_ashandy-agent_nskrxc.png)
 
 
 ---
@@ -184,7 +184,7 @@ Retail businesses (especially cosmetics) face:
 
 ### Multi-Agent Architecture
 
-ASHY uses **6 specialized agents** orchestrated by LangGraph:
+ashandy-agent uses **6 specialized agents** orchestrated by LangGraph:
 
 #### 1. Router Agent
 **Role**: Traffic controller and user classification
@@ -523,7 +523,7 @@ from typing import TypedDict, Annotated, List, Dict, Optional
 from langchain_core.messages import BaseMessage
 from langgraph.graph import add_messages
 
-class ASHYState(TypedDict):
+class ashandy-agentState(TypedDict):
     # Core conversation
     messages: Annotated[List[BaseMessage], add_messages]
     user_id: str
@@ -558,25 +558,25 @@ class ASHYState(TypedDict):
 
 ### Conditional Edges
 ```python
-def route_after_router(state: ASHYState):
+def route_after_router(state: ashandy-agentState):
     if state["is_admin"]:
         return "admin_agent"
     else:
         return "safety_agent"
 
-def route_after_safety(state: ASHYState):
+def route_after_safety(state: ashandy-agentState):
     if state.get("blocked", False):
         return "end"
     else:
         return "cache_check"
 
-def route_query_type(state: ASHYState):
+def route_query_type(state: ashandy-agentState):
     if state["query_type"] == "image":
         return "visual_agent"
     else:
         return "memory_retrieval"
 
-def route_order_intent(state: ASHYState):
+def route_order_intent(state: ashandy-agentState):
     if state["order_intent"]:
         return "payment_agent"
     else:
@@ -589,7 +589,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 
 # Initialize graph
-workflow = StateGraph(state_schema=ASHYState)
+workflow = StateGraph(state_schema=ashandy-agentState)
 
 # Add nodes (agents)
 workflow.add_node("router", router_agent_node)
@@ -663,7 +663,7 @@ result = app.invoke(input_state, config)
 
 ## 🌐 API Endpoints
 
-**Base URL**: `https://ashy-api.render.com` (or your deployment URL)
+**Base URL**: `https://ashandy-agent-api.render.com` (or your deployment URL)
 
 ### 1. System & Health
 
@@ -1127,7 +1127,7 @@ Create a `.env` file in the project root:
 # ============================================
 # APPLICATION SETTINGS
 # ============================================
-APP_NAME=ASHY
+APP_NAME=ashandy-agent
 APP_VERSION=1.0.0
 ENVIRONMENT=production  # development | staging | production
 DEBUG=False
@@ -1136,7 +1136,7 @@ LOG_LEVEL=INFO
 # ============================================
 # DATABASE - PostgreSQL
 # ============================================
-DATABASE_URL=postgresql://user:password@localhost:5432/ashy_db
+DATABASE_URL=postgresql://user:password@localhost:5432/ashandy-agent_db
 # For async: postgresql+asyncpg://user:password@host:port/db
 DB_POOL_SIZE=20
 DB_MAX_OVERFLOW=10
@@ -1205,7 +1205,7 @@ DINO_EMBEDDING_DIM=768
 # LANGGRAPH & LANGSMITH
 # ============================================
 LANGCHAIN_API_KEY=your-langsmith-api-key
-LANGCHAIN_PROJECT=ashy-production
+LANGCHAIN_PROJECT=ashandy-agent-production
 LANGCHAIN_TRACING_V2=true
 LANGSMITH_ENDPOINT=https://api.smith.langchain.com
 
@@ -1219,7 +1219,7 @@ ADMIN_API_KEY=your-secure-admin-api-key
 # LOGISTICS - Termii SMS Fallback
 # ============================================
 TERMII_API_KEY=your-termii-api-key
-TERMII_SENDER_ID=ASHY
+TERMII_SENDER_ID=ashandy-agent
 
 # ============================================
 # SECURITY
@@ -1230,8 +1230,8 @@ CORS_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
 # ============================================
 # DEPLOYMENT
 # ============================================
-BASE_URL=https://ashy-api.render.com
-WEBHOOK_BASE_URL=https://ashy-api.render.com/webhook
+BASE_URL=https://ashandy-agent-api.render.com
+WEBHOOK_BASE_URL=https://ashandy-agent-api.render.com/webhook
 ```
 
 ---
@@ -1253,8 +1253,8 @@ WEBHOOK_BASE_URL=https://ashy-api.render.com/webhook
 
 #### 1. Clone Repository
 ```bash
-git clone https://github.com/your-org/ashy-sabi.git
-cd ashy-sabi
+git clone https://github.com/your-org/ashandy-agent-sabi.git
+cd ashandy-agent-sabi
 ```
 
 #### 2. Create Virtual Environment
@@ -1344,9 +1344,9 @@ services:
   postgres:
     image: postgres:15-alpine
     environment:
-      POSTGRES_USER: ashy_user
-      POSTGRES_PASSWORD: ashy_password
-      POSTGRES_DB: ashy_db
+      POSTGRES_USER: ashandy-agent_user
+      POSTGRES_PASSWORD: ashandy-agent_password
+      POSTGRES_DB: ashandy-agent_db
     ports:
       - "5432:5432"
     volumes:
@@ -1414,7 +1414,7 @@ POS_DB_CONFIG = {
 }
 
 # Cloud API Config
-CLOUD_API_URL = 'https://ashy-api.render.com/api/v1/pos'
+CLOUD_API_URL = 'https://ashandy-agent-api.render.com/api/v1/pos'
 API_KEY = 'your-secure-pos-api-key'
 ```
 
@@ -1434,7 +1434,7 @@ python scripts/pos_local_sync.py
 ## 📁 Project Structure
 
 ```
-ashy-sabi/
+ashandy-agent-sabi/
 ├── app/
 │   ├── __init__.py
 │   ├── main.py                      # FastAPI app entry point
@@ -1525,13 +1525,13 @@ Sign up at [render.com](https://render.com)
 
 #### 2. Create PostgreSQL Database
 - Go to "New +" → "PostgreSQL"
-- Name: `ashy-db`
+- Name: `ashandy-agent-db`
 - Plan: Free tier (sufficient for testing)
 - Copy connection string
 
 #### 3. Create Redis Instance
 - Go to "New +" → "Redis"
-- Name: `ashy-cache`
+- Name: `ashandy-agent-cache`
 - Plan: Free tier
 - Copy connection string
 
@@ -1539,7 +1539,7 @@ Sign up at [render.com](https://render.com)
 - Go to "New +" → "Web Service"
 - Connect GitHub repository
 - Configuration:
-  - **Name**: ashy-api
+  - **Name**: ashandy-agent-api
   - **Environment**: Python 3
   - **Build Command**: `pip install -r requirements.txt`
   - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
@@ -1558,7 +1558,7 @@ In Render dashboard, add all variables from `.env` file
 
 #### 1. Build Image
 ```bash
-docker build -t ashy-api:latest .
+docker build -t ashandy-agent-api:latest .
 ```
 
 **`Dockerfile`**:
@@ -1591,10 +1591,10 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 #### 2. Run Container
 ```bash
 docker run -d \
-  --name ashy-api \
+  --name ashandy-agent-api \
   -p 8000:8000 \
   --env-file .env \
-  ashy-api:latest
+  ashandy-agent-api:latest
 ```
 
 #### 3. Use Docker Compose (Multi-Container)
@@ -1644,10 +1644,10 @@ python tests/adversarial/test_toxic_inputs.py
 # tests/test_agents.py
 import pytest
 from app.agents.safety_agent import safety_agent_node
-from app.models.agent_states import ASHYState
+from app.models.agent_states import ashandy-agentState
 
 def test_safety_agent_blocks_toxic():
-    state = ASHYState(
+    state = ashandy-agentState(
         messages=[{"role": "user", "content": "You stupid bot"}],
         user_id="test-user"
     )
@@ -1785,9 +1785,9 @@ python scripts/create_pinecone_indexes.py
 ## 📞 Support & Contact
 
 - **Project Lead**: [Your Name]
-- **Email**: contact@ashy-ai.com
-- **Slack**: #ashy-dev
-- **Issues**: [GitHub Issues](https://github.com/your-org/ashy-sabi/issues)
+- **Email**: contact@ashandy-agent-ai.com
+- **Slack**: #ashandy-agent-dev
+- **Issues**: [GitHub Issues](https://github.com/your-org/ashandy-agent-sabi/issues)
 
 ---
 
@@ -1800,7 +1800,6 @@ MIT License - See LICENSE file for details
 ## 🙏 Acknowledgments
 
 - **Meta AI**: Llama models
-- **Anthropic**: Claude for development assistance
 - **LangChain**: LangGraph framework
 - **Segment Anything**: SAM model
 - **DINOv3**: Visual embeddings
