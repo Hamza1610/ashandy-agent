@@ -20,14 +20,14 @@ async def sales_consultant_agent_node(state: AgentState):
     
     # 1. Check Semantic Cache
     query_hash = hashlib.md5(last_message.encode()).hexdigest()
-    cached = await check_semantic_cache.invoke(query_hash)
+    cached = await check_semantic_cache.ainvoke(query_hash)
     if cached:
         logger.info("Semantic cache hit.")
         state["cached_response"] = cached
         return {"cached_response": cached}
         
     # 2. Retrieve Context (User Memory)
-    user_context = await retrieve_user_memory.invoke(user_id)
+    user_context = await retrieve_user_memory.ainvoke(user_id)
     
     # 3. Formulate Prompt
     # Check if there are visual matches from previous node
@@ -43,7 +43,7 @@ async def sales_consultant_agent_node(state: AgentState):
         # We search using the last message as a loose keyword
         # In a real system, we'd extract keywords first.
         try:
-             search_res = await get_product_details.invoke(last_message)
+             search_res = await get_product_details.ainvoke(last_message)
              text_context = f"Database Search Results for '{last_message}':\n{search_res}"
         except Exception as e:
              logger.warning(f"Text search failed: {e}")
@@ -88,7 +88,7 @@ async def sales_consultant_agent_node(state: AgentState):
              state["order_intent"] = True
              
         # 6. Update Cache
-        await update_semantic_cache.invoke({"query_hash": query_hash, "response": ai_message})
+        await update_semantic_cache.ainvoke({"query_hash": query_hash, "response": ai_message})
         
         return {
             "messages": [SystemMessage(content=ai_message)],

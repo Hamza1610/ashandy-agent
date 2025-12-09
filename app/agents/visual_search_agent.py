@@ -18,7 +18,7 @@ async def visual_search_agent_node(state: AgentState):
     try:
         # 1. Generate visual embedding
         # This will call the Refactored tool using DINOv2
-        embedding = await process_image_for_search.invoke(image_url)
+        embedding = await process_image_for_search.ainvoke(image_url)
         
         if not embedding:
              return {"error": "Failed to process image."}
@@ -28,7 +28,7 @@ async def visual_search_agent_node(state: AgentState):
         # We assume the result is a string description of matches for now, 
         # or we could refactor tool to return list and handle formatting here.
         # The current tool returns a formatted string.
-        search_results = await search_visual_products.invoke(embedding)
+        search_results = await search_visual_products.ainvoke(embedding)
         
         # 3. Store results in state for the response node
         # We can parse the string or just carry it forward
