@@ -29,78 +29,54 @@ async def receive_whatsapp_webhook(request: Request):
     """
     Receive WhatsApp messages.
     """
-    try:
-        payload = await request.json()
-        logger.info(f"Received WhatsApp webhook: {payload}")
-    except Exception as e:
-        logger.warning(f"Failed to decode JSON payload: {e}")
-        return {"status": "error", "message": "Invalid JSON body"}
-    
-    # Imports for graph execution
-    from app.workflows.main_workflow import app as graph_app
+    from app.workflows.main_workflow import app as agent_app
     from langchain_core.messages import HumanMessage
-    from app.services.meta_service import meta_service
 
-    # Basic parsing logic for WhatsApp Cloud API
-    # Structure: entry[0].changes[0].value.messages[0]
+    payload = await request.json()
+    logger.info(f"Received WhatsApp webhook: {payload}")
+    
     try:
         entry = payload.get("entry", [])[0]
         changes = entry.get("changes", [])[0]
         value = changes.get("value", {})
         messages = value.get("messages", [])
-        
+
         if not messages:
-            # Maybe a status update
-            return {"status": "ignored_status_update"}
-            
+            return {"status": "no_messages"}
+
         message = messages[0]
-        from_phone = message.get("from") # User ID
+        wa_id = message.get("from") # The user's phone number
+        
+        # Extract message content
+        content = ""
         msg_type = message.get("type")
         
-        user_message_content = ""
-        image_url = None
-        
         if msg_type == "text":
-            user_message_content = message.get("text", {}).get("body", "")
+            content = message["text"]["body"]
         elif msg_type == "image":
-            # For this MVP, we might not have full media download logic here w/o tokens.
-            # But let's assume we get an ID or URL if accessible.
-            # Actual Meta API requires retrieval via ID. 
-            # We will use caption if available or placeholder.
-            user_message_content = message.get("image", {}).get("caption", "")
-            # Logic to get URL would go here. For now, we skip heavy media logic 
-            # or assume a public URL if provided (unlikely in standard API).
-            # To fix: We need a media_id -> URL helper.
-            pass
-            
-        # Construct Input State
-        input_state = {
-            "messages": [HumanMessage(content=user_message_content)],
-            "user_id": from_phone,
-            "platform": "whatsapp",
-            "is_admin": False # Router will check this
-        }
-        
-        # Invoke Graph
-        logger.info(f"Invoking Agent Graph for {from_phone}...")
-        final_state = await graph_app.ainvoke(input_state)
-        
-        # Extract Response
-        # We assume the last message in state['messages'] is the AI response (SystemMessage or AI Message)
-        final_messages = final_state.get("messages", [])
-        if final_messages:
-            last_msg = final_messages[-1]
-            response_text = last_msg.content
-            
-            # Send back via Meta/Twilio
-            await meta_service.send_whatsapp_text(from_phone, response_text)
-            logger.info("Response sent to user.")
-            
-        return {"status": "processed"}
+            # For now just handle as text or pass image URL if we had it
+            # Ideally we extract the image ID and get the URL
+            content = "User sent an image" 
+            # Note: handling actual image retrieval requires Meta API call with media ID
+            # For this MVP step we focus on text/admin commands
 
+        if wa_id and content:
+            # Inputs for the flow
+            inputs = {
+                "messages": [HumanMessage(content=content)],
+                "user_id": wa_id,
+                "platform": "whatsapp",
+                "is_admin": False # Router will decide
+            }
+            
+            # Run the graph
+            # Use ainvoke for async execution
+            await agent_app.ainvoke(inputs)
+            
     except Exception as e:
-        logger.error(f"Webhook processing error: {e}")
-        return {"status": "error", "message": str(e)}
+        logger.error(f"Error processing webhook: {e}")
+            
+    return {"status": "processed"}
 
 # Instagram Webhook
 @router.get("/instagram")
