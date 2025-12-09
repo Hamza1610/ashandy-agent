@@ -27,3 +27,5 @@ python-multipart
 sentence-transformers
 websockets
 langchain-groq
+twilio
+huggingface_hub
