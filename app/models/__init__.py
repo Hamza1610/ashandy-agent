@@ -3,3 +3,4 @@
 This file marks the models directory as a Python package.
 It can export model classes.
 """
+from .db_models import Base
