@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # SECURITY
     SECRET_KEY: str = "super-secret"
     CORS_ORIGINS: List[str] = ["*"]
+    
+    # ADMIN
+    ADMIN_PHONE_NUMBERS: List[str] = []
 
     model_config = {
         "env_file": ".env",

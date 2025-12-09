@@ -9,16 +9,11 @@ logger = logging.getLogger(__name__)
 
 @tool
 async def check_admin_whitelist(phone_number: str) -> bool:
-    """Check if a phone number is in the admin whitelist (via user role)."""
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            text("SELECT role FROM users WHERE platform_id = :pid"),
-            {"pid": phone_number}
-        )
-        user = result.fetchone()
-        if user and user[0] == 'admin':
-            return True
-        return False
+    """Check if a phone number is in the admin whitelist (via environment variable)."""
+    from app.utils.config import settings
+    if phone_number in settings.ADMIN_PHONE_NUMBERS:
+        return True
+    return False
 
 @tool
 async def get_product_details(product_name_or_sku: str) -> str:

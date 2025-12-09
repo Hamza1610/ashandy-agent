@@ -29,13 +29,54 @@ async def receive_whatsapp_webhook(request: Request):
     """
     Receive WhatsApp messages.
     """
+    from app.workflows.main_workflow import app as agent_app
+    from langchain_core.messages import HumanMessage
+
     payload = await request.json()
     logger.info(f"Received WhatsApp webhook: {payload}")
     
-    # Check if it's a message or status update
-    # Process logic here (Routing to Agents)
-    
-    return {"status": "received"}
+    try:
+        entry = payload.get("entry", [])[0]
+        changes = entry.get("changes", [])[0]
+        value = changes.get("value", {})
+        messages = value.get("messages", [])
+
+        if not messages:
+            return {"status": "no_messages"}
+
+        message = messages[0]
+        wa_id = message.get("from") # The user's phone number
+        
+        # Extract message content
+        content = ""
+        msg_type = message.get("type")
+        
+        if msg_type == "text":
+            content = message["text"]["body"]
+        elif msg_type == "image":
+            # For now just handle as text or pass image URL if we had it
+            # Ideally we extract the image ID and get the URL
+            content = "User sent an image" 
+            # Note: handling actual image retrieval requires Meta API call with media ID
+            # For this MVP step we focus on text/admin commands
+
+        if wa_id and content:
+            # Inputs for the flow
+            inputs = {
+                "messages": [HumanMessage(content=content)],
+                "user_id": wa_id,
+                "platform": "whatsapp",
+                "is_admin": False # Router will decide
+            }
+            
+            # Run the graph
+            # Use ainvoke for async execution
+            await agent_app.ainvoke(inputs)
+            
+    except Exception as e:
+        logger.error(f"Error processing webhook: {e}")
+            
+    return {"status": "processed"}
 
 # Instagram Webhook
 @router.get("/instagram")
