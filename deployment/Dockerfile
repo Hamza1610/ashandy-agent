@@ -1,5 +1,24 @@
-# Dockerfile for building the app container.
+FROM python:3.11-slim
 
-# This file defines the Docker build instructions for the application image.
-# It should entail base image, dependency installation, and entrypoint setup.
+WORKDIR /app
 
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY app/ ./app/
+COPY config/ ./config/
+
+# Expose port
+EXPOSE 8000
+
+# Run application
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
