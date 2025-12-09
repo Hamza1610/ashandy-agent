@@ -19,7 +19,7 @@ async def analyze_sentiment(text: str) -> float:
         llm = ChatGroq(
             temperature=0,
             groq_api_key=settings.LLAMA_API_KEY,
-            model_name="llama3-8b-8192"
+            model_name="meta-llama/llama-4-scout-17b-16e-instruct"
         )
         
         system_prompt = """Analyze the sentiment of the following text. 

@@ -16,10 +16,15 @@ async def admin_agent_node(state: AgentState):
     
     try:
         if command.startswith("/stock"):
-             # Trigger sync manually (normally this is automated via API, but admin can force it)
-             # In a real scenario, this might trigger a fetch from the POS via a request
-             # Here we simulate by calling the tool with dummy data or triggering the process
-             response_text = "Stock sync triggered (mock)."
+             # Real implementation: Check current stock count in DB
+             from app.services.db_service import AsyncSessionLocal
+             from sqlalchemy import text
+             
+             async with AsyncSessionLocal() as session:
+                 result = await session.execute(text("SELECT COUNT(*) FROM products"))
+                 count = result.scalar()
+             
+             response_text = f"Stock Check: {count} products found in database."
              
         elif command.startswith("/report"):
              date_str = datetime.now().strftime("%Y-%m-%d")

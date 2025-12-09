@@ -98,8 +98,13 @@ async def verify_instagram_webhook(request: Request):
 
 @router.post("/instagram")
 async def receive_instagram_webhook(request: Request):
-    payload = await request.json()
-    logger.info(f"Received Instagram webhook: {payload}")
+    try:
+        payload = await request.json()
+        logger.info(f"Received Instagram webhook: {payload}")
+    except Exception as e:
+        logger.warning(f"Failed to decode JSON payload: {e}")
+        return {"status": "error", "message": "Invalid JSON body"}
+        
     return {"status": "received"}
 
 # Paystack Webhook

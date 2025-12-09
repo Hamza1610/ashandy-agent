@@ -35,6 +35,19 @@ async def sales_consultant_agent_node(state: AgentState):
     if state.get("visual_matches"):
         visual_context = f"User uploaded an image. Visual matches found: {state['visual_matches']}"
         
+    # NEW: Text Product Search Integration
+    # If no visual matches, and query is text, check DB for product info explicitly
+    text_context = ""
+    query_type = state.get("query_type", "text")
+    if query_type == "text":
+        # We search using the last message as a loose keyword
+        # In a real system, we'd extract keywords first.
+        try:
+             search_res = await get_product_details.invoke(last_message)
+             text_context = f"Database Search Results for '{last_message}':\n{search_res}"
+        except Exception as e:
+             logger.warning(f"Text search failed: {e}")
+             
     system_prompt = f"""You are 'Sabi', a helpful and knowledgeable sales assistant for a cosmetics shop.
     
     User Context:
@@ -42,6 +55,9 @@ async def sales_consultant_agent_node(state: AgentState):
     
     Visual Context (if any):
     {visual_context}
+    
+    Product Database Context (Relevant to query):
+    {text_context}
     
     Your goal is to help the customer, recommend products, and close sales. 
     Be polite, concise, and professional. 
@@ -60,7 +76,7 @@ async def sales_consultant_agent_node(state: AgentState):
         llm = ChatGroq(
             temperature=0.3,
             groq_api_key=settings.LLAMA_API_KEY,
-            model_name="llama3-70b-8192"
+            model_name="meta-llama/llama-4-scout-17b-16e-instruct"
         )
         
         response = await llm.ainvoke(conversation)

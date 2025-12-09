@@ -7,11 +7,13 @@ logger = logging.getLogger(__name__)
 class PaystackService:
     def __init__(self):
         self.secret_key = settings.PAYSTACK_SECRET_KEY
-        if self.secret_key:
-            self.paystack = Paystack(secret_key=self.secret_key)
-        else:
-            logger.warning("PAYSTACK_SECRET_KEY not set. Paystack service initialized in mock mode.")
-            self.paystack = None
+        if not self.secret_key:
+             # In production, we should probably raise error, or log critical.
+             # User requested NO MOCKS.
+             logger.critical("PAYSTACK_SECRET_KEY is missing! Service will fail.")
+             raise ValueError("PAYSTACK_SECRET_KEY is required for production.")
+        
+        self.paystack = Paystack(secret_key=self.secret_key)
 
     def initialize_transaction(self, email: str, amount: int, reference: str):
         """
@@ -19,16 +21,7 @@ class PaystackService:
         Amount is in kobo (e.g., 500000 = 5000.00 NGN)
         """
         if not self.paystack:
-            logger.info(f"Mocking payment initialization for {email}, amount: {amount}")
-            return {
-                "status": True,
-                "message": "Authorization URL created",
-                "data": {
-                    "authorization_url": f"https://checkout.paystack.com/mock-{reference}",
-                    "access_code": f"mock-{reference}",
-                    "reference": reference
-                }
-            }
+             return {"status": False, "message": "Paystack not initialized"}
 
         try:
             response = self.paystack.transaction.initialize(
@@ -44,11 +37,7 @@ class PaystackService:
 
     def verify_transaction(self, reference: str):
         if not self.paystack:
-             logger.info(f"Mocking payment verification for {reference}")
-             return {
-                 "status": True, 
-                 "data": {"status": "success", "reference": reference, "amount": 500000}
-             }
+             return {"status": False, "message": "Paystack not initialized"}
 
         try:
             response = self.paystack.transaction.verify(reference=reference)

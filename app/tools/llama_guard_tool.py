@@ -21,7 +21,7 @@ async def check_safety(query: str) -> str:
         llm = ChatGroq(
             temperature=0, 
             groq_api_key=settings.LLAMA_API_KEY, 
-            model_name="llama3-70b-8192"
+            model_name="meta-llama/llama-guard-4-12b"
         )
         
         system_prompt = """You are a safety classification system. 
