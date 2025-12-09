@@ -24,7 +24,7 @@ async def payment_order_agent_node(state: AgentState):
     
     try:
         # 1. Generate Link
-        link_result = await generate_payment_link.invoke({
+        link_result = await generate_payment_link.ainvoke({
             "email": email,
             "amount": amount,
             "reference": reference
@@ -34,7 +34,7 @@ async def payment_order_agent_node(state: AgentState):
             return {"error": "Payment link generation failed."}
             
         # 2. Create Order Record
-        # await create_order_record.invoke(user_id, amount, reference)
+        # await create_order_record.ainvoke(user_id, amount, reference)
         
         return {
             "paystack_reference": reference,

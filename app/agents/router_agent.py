@@ -21,7 +21,7 @@ async def router_agent_node(state: AgentState):
         # 1. Check Admin Whitelist
         is_admin = False
         try:
-            is_admin = await check_admin_whitelist.invoke(sender_id)
+            is_admin = await check_admin_whitelist.ainvoke(sender_id)
         except Exception as e:
             logger.error(f"Whitelist check failed: {e}")
             
