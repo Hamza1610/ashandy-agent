@@ -4,7 +4,7 @@ from app.utils.config import settings
 
 # Async Database Engine
 engine = create_async_engine(
-    settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://"),
+    settings.DATABASE_URL,
     echo=settings.DEBUG,
     pool_size=settings.DB_POOL_SIZE,
     max_overflow=settings.DB_MAX_OVERFLOW,
