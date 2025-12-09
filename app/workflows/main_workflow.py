@@ -20,13 +20,14 @@ def route_after_router(state: AgentState):
 def route_after_safety(state: AgentState):
     if state.get("error"):
         return END # Stop if unsafe or error
-    return "query_router"
-
-def route_query_type(state: AgentState):
+    
+    # Determine where to go next based on query type
     q_type = state.get("query_type")
     if q_type == "image":
         return "visual"
-    return "sales" # Default to sales for text
+    return "sales"
+
+    return "sales"
 
 def route_after_sales(state: AgentState):
     if state.get("order_intent"):
@@ -43,27 +44,11 @@ workflow.add_node("admin", admin_agent_node)
 workflow.add_node("visual", visual_search_agent_node)
 workflow.add_node("sales", sales_consultant_agent_node)
 workflow.add_node("payment", payment_order_agent_node)
-# Note: In a full implementation, we might have a strict 'response' node to format final output for Meta API.
-# Here we assume the agents return the final message in 'messages' which the API layer will pick up.
 
 # Edges
 workflow.add_edge(START, "router")
 workflow.add_conditional_edges("router", route_after_router)
-workflow.add_conditional_edges("safety", route_after_safety, {"END": END, "query_router": "query_router"}) # map simplified strings if needed, but here simple return works with logic
-
-# We need a dummy node or logic for "query_router" or just handle it in the edge function above mapping to node names directly.
-# Let's adjust route_after_safety to return node names directly.
-def route_after_safety_direct(state: AgentState):
-    if state.get("error"):
-        return END
-    
-    # Determine where to go next based on query type
-    q_type = state.get("query_type")
-    if q_type == "image":
-        return "visual"
-    return "sales"
-
-workflow.add_conditional_edges("safety", route_after_safety_direct)
+workflow.add_conditional_edges("safety", route_after_safety)
 
 workflow.add_edge("visual", "sales") # Visual search results feed into sales consultant for context
 workflow.add_conditional_edges("sales", route_after_sales)

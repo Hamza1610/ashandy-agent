@@ -80,6 +80,25 @@ class MetaService:
                 return {"error": str(e), "details": e.response.text}
             except Exception as e:
                 logger.error(f"Instagram send error: {e}")
-                return {"error": str(e)}
+    async def get_media_url(self, media_id: str) -> str:
+        """
+        Retrieve the URL for a media ID from the Graph API.
+        Note: The returned URL requires an Authorization header to download.
+        """
+        if not self.wa_token:
+            return None
+            
+        url = f"https://graph.facebook.com/v18.0/{media_id}"
+        headers = {"Authorization": f"Bearer {self.wa_token}"}
+        
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(url, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+                return data.get("url")
+            except Exception as e:
+                logger.error(f"Failed to get media URL for {media_id}: {e}")
+                return None
 
 meta_service = MetaService()

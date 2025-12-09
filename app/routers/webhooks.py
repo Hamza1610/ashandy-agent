@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Request, HTTPException, status
 from app.utils.config import settings
+from app.models.webhook_schemas import WhatsAppWebhookPayload, InstagramWebhookPayload
 import logging
 
 router = APIRouter()
@@ -25,81 +26,91 @@ async def verify_whatsapp_webhook(request: Request):
     return {"status": "ok"}
 
 @router.post("/whatsapp")
-async def receive_whatsapp_webhook(request: Request):
+async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
     """
-    Receive WhatsApp messages.
+    Receive WhatsApp messages (Typed Schema).
     """
-    try:
-        payload = await request.json()
-        logger.info(f"Received WhatsApp webhook: {payload}")
-    except Exception as e:
-        logger.warning(f"Failed to decode JSON payload: {e}")
-        return {"status": "error", "message": "Invalid JSON body"}
-    
-    # Imports for graph execution
     from app.workflows.main_workflow import app as graph_app
     from langchain_core.messages import HumanMessage
     from app.services.meta_service import meta_service
+    from app.models.agent_states import AgentState
 
-    # Basic parsing logic for WhatsApp Cloud API
-    # Structure: entry[0].changes[0].value.messages[0]
     try:
-        entry = payload.get("entry", [])[0]
-        changes = entry.get("changes", [])[0]
-        value = changes.get("value", {})
-        messages = value.get("messages", [])
-        
-        if not messages:
-            # Maybe a status update
-            return {"status": "ignored_status_update"}
-            
-        message = messages[0]
-        from_phone = message.get("from") # User ID
-        msg_type = message.get("type")
+        # Pydantic parsing happens automatically now.
+        # Access data via object attributes
+        if not payload.entry:
+             return {"status": "no_entry"}
+             
+        entry = payload.entry[0]
+        if not entry.changes:
+             return {"status": "no_changes"}
+             
+        change = entry.changes[0]
+        if not change.value.messages:
+             return {"status": "ignored_status_update"}
+             
+        message = change.value.messages[0]
+        from_phone = message.from_
+        msg_type = message.type
         
         user_message_content = ""
         image_url = None
         
-        if msg_type == "text":
-            user_message_content = message.get("text", {}).get("body", "")
-        elif msg_type == "image":
-            # For this MVP, we might not have full media download logic here w/o tokens.
-            # But let's assume we get an ID or URL if accessible.
-            # Actual Meta API requires retrieval via ID. 
-            # We will use caption if available or placeholder.
-            user_message_content = message.get("image", {}).get("caption", "")
-            # Logic to get URL would go here. For now, we skip heavy media logic 
-            # or assume a public URL if provided (unlikely in standard API).
-            # To fix: We need a media_id -> URL helper.
-            pass
+        if msg_type == "text" and message.text:
+            user_message_content = message.text.body
+        elif msg_type == "image" and message.image:
+            # Handle Image
+            media_id = message.image.id
+            caption = message.image.caption or ""
+            user_message_content = caption # Use caption as text context
+            
+            # Resolve URL
+            # Note: This URL is authenticated. The Visual Tool needs to handle it.
+            # Ideally we pass headers or download here. 
+            # For checking flows, we pass the URL. 
+            fetched_url = await meta_service.get_media_url(media_id)
+            if fetched_url:
+                image_url = fetched_url
+            else:
+                logger.warning(f"Could not resolve URL for media {media_id}")
             
         # Construct Input State
+        # We need to pass the image URL in a way the Router understands.
+        # Router checks: additional_kwargs["image_url"] 
+        
+        msg_kwargs = {}
+        if image_url:
+            msg_kwargs["image_url"] = image_url
+            # Also constructing multimodal content block for LangChain purity
+            # content = [{"type": "text", "text": user_message_content}, {"type": "image_url", "image_url": {"url": image_url}}]
+        
+        human_msg = HumanMessage(content=user_message_content)
+        if image_url:
+             human_msg.additional_kwargs["image_url"] = image_url
+        
         input_state = {
-            "messages": [HumanMessage(content=user_message_content)],
+            "messages": [human_msg],
             "user_id": from_phone,
             "platform": "whatsapp",
-            "is_admin": False # Router will check this
+            "is_admin": False
         }
         
         # Invoke Graph
         logger.info(f"Invoking Agent Graph for {from_phone}...")
-        final_state = await graph_app.ainvoke(input_state)
+        final_state = await graph_app.ainvoke(input_state, config={"configurable": {"thread_id": from_phone}})
         
         # Extract Response
-        # We assume the last message in state['messages'] is the AI response (SystemMessage or AI Message)
         final_messages = final_state.get("messages", [])
         if final_messages:
             last_msg = final_messages[-1]
             response_text = last_msg.content
-            
-            # Send back via Meta/Twilio
             await meta_service.send_whatsapp_text(from_phone, response_text)
-            logger.info("Response sent to user.")
             
         return {"status": "processed"}
 
     except Exception as e:
         logger.error(f"Webhook processing error: {e}")
+        # Return 200 to prevent Meta retries on logic errors
         return {"status": "error", "message": str(e)}
 
 # Instagram Webhook
@@ -121,15 +132,70 @@ async def verify_instagram_webhook(request: Request):
     return {"status": "ok"}
 
 @router.post("/instagram")
-async def receive_instagram_webhook(request: Request):
+async def receive_instagram_webhook(payload: InstagramWebhookPayload):
+    from app.workflows.main_workflow import app as graph_app
+    from langchain_core.messages import HumanMessage
+    from app.services.meta_service import meta_service
+
     try:
-        payload = await request.json()
-        logger.info(f"Received Instagram webhook: {payload}")
-    except Exception as e:
-        logger.warning(f"Failed to decode JSON payload: {e}")
-        return {"status": "error", "message": "Invalid JSON body"}
+        # logger.info(f"Received Instagram webhook: {payload}")
         
-    return {"status": "received"}
+        if not payload.entry:
+             return {"status": "no_entry"}
+             
+        entry = payload.entry[0]
+        if not entry.messaging:
+             return {"status": "ignored_event_type"}
+            
+        event = entry.messaging[0]
+        sender_id = event.sender["id"]
+        
+        if not event.message:
+             return {"status": "ignored_non_message"}
+             
+        message = event.message
+        text_content = message.text or ""
+        
+        # Check for attachments (images)
+        image_url = None
+        if message.attachments:
+            for att in message.attachments:
+                if att.get("type") == "image":
+                    # IG Attachments usually provide a payload.url directly
+                    payload_url = att.get("payload", {}).get("url")
+                    if payload_url:
+                        image_url = payload_url
+                        break
+        
+        # Construct Message
+        human_msg = HumanMessage(content=text_content)
+        if image_url:
+             human_msg.additional_kwargs["image_url"] = image_url
+        
+        # Construct Input State
+        input_state = {
+            "messages": [human_msg],
+            "user_id": sender_id,
+            "platform": "instagram",
+            "is_admin": False
+        }
+        
+        # Invoke Graph
+        logger.info(f"Invoking Agent Graph for IG User {sender_id}...")
+        final_state = await graph_app.ainvoke(input_state, config={"configurable": {"thread_id": sender_id}})
+        
+        # Send Response
+        final_messages = final_state.get("messages", [])
+        if final_messages:
+            last_msg = final_messages[-1]
+            response_text = last_msg.content
+            await meta_service.send_instagram_text(sender_id, response_text)
+            
+        return {"status": "processed"}
+
+    except Exception as e:
+        logger.error(f"IG Webhook processing error: {e}")
+        return {"status": "error", "message": "Processing failed"}
 
 # Paystack Webhook
 @router.post("/paystack")
