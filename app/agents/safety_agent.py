@@ -1,6 +1,32 @@
-"""Safety Agent implementation.
+from app.models.agent_states import AgentState
+from app.tools.llama_guard_tool import check_safety
+from langchain_core.messages import SystemMessage
+import logging
 
-This file defines the Safety Agent class, using Llama Guard for input/output filtering
-and logging violations to the safety_logs table.
-It should entail safety checks, blocking logic, and integration with Llama Guard.
-"""
+logger = logging.getLogger(__name__)
+
+async def safety_agent_node(state: AgentState):
+    """
+    Safety Agent: Checks for toxic content.
+    """
+    messages = state["messages"]
+    last_message = messages[-1]
+    
+    if state.get("is_admin"):
+        # Admins bypass safety checks
+        return {}
+        
+    user_query = last_message.content
+    
+    if not user_query:
+        return {} # No text to check (e.g. image only)
+
+    safety_result = await check_safety.invoke(user_query)
+    
+    if safety_result == "unsafe":
+        return {
+            "error": "Safety violation detected.",
+            "messages": [SystemMessage(content="Your message was flagged as unsafe.")]
+        }
+        
+    return {}
