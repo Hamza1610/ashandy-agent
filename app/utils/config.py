@@ -19,7 +19,13 @@ class Settings(BaseSettings):
     DB_MAX_OVERFLOW: int = 10
 
     # REDIS
-    REDIS_URL: str = "redis://localhost:6379/0"
+    # Redis: either set REDIS_URL or host/port/db with username/password
+    REDIS_URL: str | None = None
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_DB: int = 0
+    REDIS_USERNAME: str | None = None
+    REDIS_PASSWORD: str | None = None
     REDIS_CACHE_TTL: int = 3600
 
     # PINECONE
