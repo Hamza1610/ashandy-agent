@@ -29,10 +29,17 @@ class MetaService:
                     "type": "text",
                     "text": {"body": text}
                 }
+
+
                 async with httpx.AsyncClient() as client:
                     response = await client.post(self.wa_url, headers=headers, json=payload)
                     response.raise_for_status()
+
                     return response.json()
+            except httpx.HTTPStatusError as e:
+                logger.info("RESULT FROM AGENT:", payload)
+                logger.error(f"Meta WhatsApp 401/403 Error: {e.response.text}. Token may be invalid.")
+                # Proceed to fallback
             except Exception as e:
                 logger.error(f"Meta WhatsApp failed: {e}. Attempting Twilio Fallback...")
 

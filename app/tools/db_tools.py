@@ -26,7 +26,7 @@ async def get_product_details(product_name_or_sku: str) -> str:
     async with AsyncSessionLocal() as session:
         # Simple fuzzy search implementation using ILIKE
         query = text("""
-            SELECT name, price, description, sku, inventory_count 
+            SELECT name, price, description, sku
             FROM products 
             WHERE name ILIKE :term OR sku ILIKE :term
             LIMIT 5
