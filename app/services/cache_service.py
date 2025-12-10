@@ -13,7 +13,10 @@ class CacheService:
 
     async def connect(self):
          if not self.redis:
-            self.redis = redis.from_url(self.redis_url, encoding="utf-8", decode_responses=True)
+            url = self.redis_url
+            if not url.startswith("redis://") and not url.startswith("rediss://"):
+                url = f"redis://{url}"
+            self.redis = redis.from_url(url, encoding="utf-8", decode_responses=True)
 
     async def get_json(self, key: str):
         await self.connect()
