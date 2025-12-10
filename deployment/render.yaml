@@ -1,5 +1,33 @@
-# Render/Cloud deployment configuration.
+services:
+  - type: web
+    name: ashandy-agent
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ashandy-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: ashandy-redis
+          property: connectionString
+      - key: PINECONE_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: META_ACCESS_TOKEN
+        sync: false
 
-# This file defines deployment specs for Render or similar platforms.
-# It should entail service types, env vars, and build commands if using Render.
+databases:
+  - name: ashandy-db
+    databaseName: ashandy
+    user: ashandy_user
 
+# Redis instance if needed separately, though Render often manages redis differently or via external providers

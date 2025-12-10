@@ -48,7 +48,23 @@ workflow.add_node("payment", payment_order_agent_node)
 # Edges
 workflow.add_edge(START, "router")
 workflow.add_conditional_edges("router", route_after_router)
+<<<<<<< HEAD
 workflow.add_conditional_edges("safety", route_after_safety)
+=======
+# We need a dummy node or logic for "query_router" or just handle it in the edge function above mapping to node names directly.
+# Let's adjust route_after_safety to return node names directly.
+def route_after_safety_direct(state: AgentState):
+    if state.get("error"):
+        return END
+    
+    # Determine where to go next based on query type
+    q_type = state.get("query_type")
+    if q_type == "image":
+        return "visual"
+    return "sales"
+
+workflow.add_conditional_edges("safety", route_after_safety_direct)
+>>>>>>> 42c667b06337c74486282d06552ee99bb7997ca2
 
 workflow.add_edge("visual", "sales") # Visual search results feed into sales consultant for context
 workflow.add_conditional_edges("sales", route_after_sales)

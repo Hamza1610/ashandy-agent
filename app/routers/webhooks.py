@@ -26,92 +26,58 @@ async def verify_whatsapp_webhook(request: Request):
     return {"status": "ok"}
 
 @router.post("/whatsapp")
-async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
+async def receive_whatsapp_webhook(request: Request):
     """
-    Receive WhatsApp messages (Typed Schema).
+    Receive WhatsApp messages.
     """
-    from app.workflows.main_workflow import app as graph_app
+    from app.workflows.main_workflow import app as agent_app
     from langchain_core.messages import HumanMessage
-    from app.services.meta_service import meta_service
-    from app.models.agent_states import AgentState
 
+    payload = await request.json()
+    logger.info(f"Received WhatsApp webhook: {payload}")
+    
     try:
-        # Pydantic parsing happens automatically now.
-        # Access data via object attributes
-        if not payload.entry:
-             return {"status": "no_entry"}
-             
-        entry = payload.entry[0]
-        if not entry.changes:
-             return {"status": "no_changes"}
-             
-        change = entry.changes[0]
-        if not change.value.messages:
-             return {"status": "ignored_status_update"}
-             
-        message = change.value.messages[0]
-        from_phone = message.from_
-        msg_type = message.type
-        
-        user_message_content = ""
-        image_url = None
-        
-        if msg_type == "text" and message.text:
-            user_message_content = message.text.body
-        elif msg_type == "image" and message.image:
-            # Handle Image
-            media_id = message.image.id
-            caption = message.image.caption or ""
-            user_message_content = caption # Use caption as text context
-            
-            # Resolve URL
-            # Note: This URL is authenticated. The Visual Tool needs to handle it.
-            # Ideally we pass headers or download here. 
-            # For checking flows, we pass the URL. 
-            fetched_url = await meta_service.get_media_url(media_id)
-            if fetched_url:
-                image_url = fetched_url
-            else:
-                logger.warning(f"Could not resolve URL for media {media_id}")
-            
-        # Construct Input State
-        # We need to pass the image URL in a way the Router understands.
-        # Router checks: additional_kwargs["image_url"] 
-        
-        msg_kwargs = {}
-        if image_url:
-            msg_kwargs["image_url"] = image_url
-            # Also constructing multimodal content block for LangChain purity
-            # content = [{"type": "text", "text": user_message_content}, {"type": "image_url", "image_url": {"url": image_url}}]
-        
-        human_msg = HumanMessage(content=user_message_content)
-        if image_url:
-             human_msg.additional_kwargs["image_url"] = image_url
-        
-        input_state = {
-            "messages": [human_msg],
-            "user_id": from_phone,
-            "platform": "whatsapp",
-            "is_admin": False
-        }
-        
-        # Invoke Graph
-        logger.info(f"Invoking Agent Graph for {from_phone}...")
-        final_state = await graph_app.ainvoke(input_state, config={"configurable": {"thread_id": from_phone}})
-        
-        # Extract Response
-        final_messages = final_state.get("messages", [])
-        if final_messages:
-            last_msg = final_messages[-1]
-            response_text = last_msg.content
-            await meta_service.send_whatsapp_text(from_phone, response_text)
-            
-        return {"status": "processed"}
+        entry = payload.get("entry", [])[0]
+        changes = entry.get("changes", [])[0]
+        value = changes.get("value", {})
+        messages = value.get("messages", [])
 
+        if not messages:
+            return {"status": "no_messages"}
+
+        message = messages[0]
+        wa_id = message.get("from") # The user's phone number
+        
+        # Extract message content
+        content = ""
+        msg_type = message.get("type")
+        
+        if msg_type == "text":
+            content = message["text"]["body"]
+        elif msg_type == "image":
+            # For now just handle as text or pass image URL if we had it
+            # Ideally we extract the image ID and get the URL
+            content = "User sent an image" 
+            # Note: handling actual image retrieval requires Meta API call with media ID
+            # For this MVP step we focus on text/admin commands
+
+        if wa_id and content:
+            # Inputs for the flow
+            inputs = {
+                "messages": [HumanMessage(content=content)],
+                "user_id": wa_id,
+                "platform": "whatsapp",
+                "is_admin": False # Router will decide
+            }
+            
+            # Run the graph
+            # Use ainvoke for async execution
+            await agent_app.ainvoke(inputs)
+            
     except Exception as e:
-        logger.error(f"Webhook processing error: {e}")
-        # Return 200 to prevent Meta retries on logic errors
-        return {"status": "error", "message": str(e)}
+        logger.error(f"Error processing webhook: {e}")
+            
+    return {"status": "processed"}
 
 # Instagram Webhook
 @router.get("/instagram")

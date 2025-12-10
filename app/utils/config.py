@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     # SECURITY
     SECRET_KEY: str = "super-secret"
     CORS_ORIGINS: List[str] = ["*"]
+    
+    # ADMIN
+    ADMIN_PHONE_NUMBERS: List[str] = []
 
     # Allow extra fields for flexibility
     model_config = {

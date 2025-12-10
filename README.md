@@ -1,4 +1,4 @@
-# ashandy-agent (Sabi) - AI Sales & Help Assistant
+# ashandy-agent (Awéléwà) - AI Sales & Help Assistant
 
 **Version:** 1.0  
 **Date:** December 2025  
@@ -688,7 +688,7 @@ result = app.invoke(input_state, config)
 **Response**:
 ```json
 {
-  "message": "Sabi API v1.0 is running",
+  "message": "Awéléwà API v1.0 is running",
   "version": "1.0.0"
 }
 ```
@@ -1253,8 +1253,8 @@ WEBHOOK_BASE_URL=https://ashandy-agent-api.render.com/webhook
 
 #### 1. Clone Repository
 ```bash
-git clone https://github.com/your-org/ashandy-agent-sabi.git
-cd ashandy-agent-sabi
+git clone https://github.com/your-org/ashandy-agent-awéléwà.git
+cd ashandy-agent-awéléwà
 ```
 
 #### 2. Create Virtual Environment
@@ -1434,7 +1434,7 @@ python scripts/pos_local_sync.py
 ## 📁 Project Structure
 
 ```
-ashandy-agent-sabi/
+ashandy-agent-awéléwà/
 ├── app/
 │   ├── __init__.py
 │   ├── main.py                      # FastAPI app entry point
@@ -1787,7 +1787,7 @@ python scripts/create_pinecone_indexes.py
 - **Project Lead**: [Your Name]
 - **Email**: contact@ashandy-agent-ai.com
 - **Slack**: #ashandy-agent-dev
-- **Issues**: [GitHub Issues](https://github.com/your-org/ashandy-agent-sabi/issues)
+- **Issues**: [GitHub Issues](https://github.com/your-org/ashandy-agent-awéléwà/issues)
 
 ---
 
