@@ -16,6 +16,7 @@ class MetaService:
         self.ig_url = "https://graph.facebook.com/v18.0/me/messages"
 
     async def send_whatsapp_text(self, to_phone: str, text: str):
+        print("RESULT FROM AGENT:", text)
         # 1. Try Meta API First
         if self.wa_token and self.wa_phone_id:
             try:
@@ -34,10 +35,10 @@ class MetaService:
                 async with httpx.AsyncClient() as client:
                     response = await client.post(self.wa_url, headers=headers, json=payload)
                     response.raise_for_status()
-
-                    return response.json()
+                    data = response.json()
+                    logger.info(f"Meta WhatsApp send success to {to_phone}: {data}")
+                    return {"status": "sent_via_meta", "provider": "meta", "response": data}
             except httpx.HTTPStatusError as e:
-                logger.info("RESULT FROM AGENT:", payload)
                 logger.error(f"Meta WhatsApp 401/403 Error: {e.response.text}. Token may be invalid.")
                 # Proceed to fallback
             except Exception as e:
@@ -46,6 +47,7 @@ class MetaService:
         # 2. Fallback to Twilio
         if settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN and settings.TWILIO_PHONE_NUMBER:
             try:
+                
                 from twilio.rest import Client
                 client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
                 message = client.messages.create(
@@ -53,18 +55,19 @@ class MetaService:
                     from_=settings.TWILIO_PHONE_NUMBER,
                     to=f"whatsapp:{to_phone}" if not to_phone.startswith("whatsapp:") else to_phone
                 )
-                logger.info(f"Sent via Twilio: {message.sid}")
-                return {"status": "sent_via_twilio", "sid": message.sid}
+                logger.info(f"Twilio WhatsApp send success to {to_phone}: sid={message.sid}")
+                return {"status": "sent_via_twilio", "provider": "twilio", "sid": message.sid}
             except Exception as e:
                 logger.error(f"Twilio Fallback failed: {e}")
-                return {"error": f"All channels failed. Meta: see logs. Twilio: {e}"}
+                return {"status": "error", "provider": "twilio", "error": str(e)}
         
-        return {"error": "Meta failed and Twilio credentials missing."}
+        return {"status": "error", "provider": "meta", "error": "Meta failed and Twilio credentials missing."}
 
     async def send_instagram_text(self, to_id: str, text: str):
+        print("RESULT FROM AGENT<instagram>:", text)
         if not self.ig_token:
             logger.error("Instagram Token missing.")
-            return {"error": "Missing credentials"}
+            return {"status": "error", "provider": "instagram", "error": "Missing credentials"}
 
         # For Instagram messaging, 'recipient' object needed
         headers = {
@@ -81,12 +84,15 @@ class MetaService:
                 # Assuming 'me/messages' works with Page Access Token linked to the IG account
                 response = await client.post(self.ig_url, headers=headers, json=payload)
                 response.raise_for_status()
-                return response.json()
+                data = response.json()
+                logger.info(f"Instagram send success to {to_id}: {data}")
+                return {"status": "sent_via_instagram", "provider": "instagram", "response": data}
             except httpx.HTTPStatusError as e:
                 logger.error(f"Instagram API Error: {e.response.text}")
-                return {"error": str(e), "details": e.response.text}
+                return {"status": "error", "provider": "instagram", "error": str(e), "details": e.response.text}
             except Exception as e:
                 logger.error(f"Instagram send error: {e}")
+                return {"status": "error", "provider": "instagram", "error": str(e)}
     async def get_media_url(self, media_id: str) -> str:
         """
         Retrieve the URL for a media ID from the Graph API.

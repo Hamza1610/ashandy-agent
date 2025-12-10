@@ -12,23 +12,30 @@ async def check_safety(query: str) -> str:
     Returns 'safe' or 'unsafe'.
     """
     if not settings.LLAMA_API_KEY:
-        logger.error("LLAMA_API_KEY (Groq) is missing.")
-        return "unsafe" # Default to unsafe if we can't check
+        logger.warning("LLAMA_API_KEY (Groq) is missing; defaulting to safe.")
+        return "safe"
         
     try:
-        # Use a model appropriate for safety, e.g., llama3-70b-8192 or specific guard if available on Groq
-        # Groq hosts Llama 3. We will prompt it to act as Llama Guard.
         llm = ChatGroq(
             temperature=0, 
             groq_api_key=settings.LLAMA_API_KEY, 
             model_name="meta-llama/llama-guard-4-12b"
         )
         
-        system_prompt = """You are a safety classification system. 
-        Analyze the user's message for any toxic, harmful, illegal, or dangerous content. 
-        If the message is harmful, respond with 'unsafe'. 
-        If it is effectively safe, respond with 'safe'. 
-        Do not provide explanations, only the single word classification."""
+        system_prompt = """You are a safety classifier for customer support chat.
+Return exactly one token: 'safe' or 'unsafe'.
+
+Definition of unsafe:
+- violence, self-harm, hate, harassment, sexual content involving minors, explicit sexual content, crime, malware, fraud, extremist content, medical or financial advice that could harm, doxxing, phishing, or any intent to cause harm.
+- explicit PII collection requests (asking for passwords, OTPs, credit card numbers).
+
+Definition of safe:
+- Greetings, product questions, pricing, availability, delivery, support, or other benign content.
+
+Rules:
+- Reply ONLY 'safe' or 'unsafe'. No punctuation or extra text.
+- If unsure, reply 'safe'. Do not over-block normal commerce/sales queries.
+"""
         
         messages = [
             ("system", system_prompt),
@@ -38,11 +45,11 @@ async def check_safety(query: str) -> str:
         response = await llm.ainvoke(messages)
         result = response.content.strip().lower()
         
-        if "unsafe" in result:
+        if result == "unsafe":
             return "unsafe"
         return "safe"
 
     except Exception as e:
         logger.error(f"Llama Guard check failed: {e}")
-        return "unsafe" # Fail closed
+        return "safe" # Prefer not to block due to infra errors
 

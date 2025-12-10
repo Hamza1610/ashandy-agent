@@ -8,14 +8,35 @@ logger = logging.getLogger(__name__)
 class CacheService:
     def __init__(self):
         self.redis_url = settings.REDIS_URL
+        self.host = settings.REDIS_HOST
+        self.port = settings.REDIS_PORT
+        self.db = settings.REDIS_DB
+        self.user = settings.REDIS_USERNAME
+        self.pwd = settings.REDIS_PASSWORD
         self.ttl = settings.REDIS_CACHE_TTL
         self.redis = None
 
     async def connect(self):
          if not self.redis:
-            url = self.redis_url
-            if not url.startswith("redis://") and not url.startswith("rediss://"):
-                url = f"redis://{url}"
+            url = None
+            if self.redis_url:
+                url = self.redis_url
+                if not url.startswith("redis://") and not url.startswith("rediss://"):
+                    url = f"redis://{url}"
+            else:
+                # Build URL from components, prefer TLS if port suggests TLS? (user can still force via REDIS_URL)
+                url = f"redis://{self.host}:{self.port}/{self.db}"
+            # Inject credentials if provided and not already present
+            if "@" not in url and (self.user or self.pwd):
+                prefix = "redis://"
+                if url.startswith("rediss://"):
+                    prefix = "rediss://"
+                    host_part = url[len("rediss://"):]
+                else:
+                    host_part = url[len("redis://"):]
+                user = self.user or "default"
+                pwd = self.pwd or ""
+                url = f"{prefix}{user}:{pwd}@{host_part}"
             self.redis = redis.from_url(url, encoding="utf-8", decode_responses=True)
 
     async def get_json(self, key: str):

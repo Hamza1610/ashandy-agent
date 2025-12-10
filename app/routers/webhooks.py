@@ -91,6 +91,7 @@ async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
         input_state = {
             "messages": [human_msg],
             "user_id": from_phone,
+            "session_id": from_phone,
             "platform": "whatsapp",
             "is_admin": False
         }
@@ -99,14 +100,17 @@ async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
         logger.info(f"Invoking Agent Graph for {from_phone}...")
         final_state = await graph_app.ainvoke(input_state, config={"configurable": {"thread_id": from_phone}})
         
-        # Extract Response
+        send_result = final_state.get("send_result")
         final_messages = final_state.get("messages", [])
-        if final_messages:
-            last_msg = final_messages[-1]
-            response_text = last_msg.content
-            await meta_service.send_whatsapp_text(from_phone, response_text)
-            
-        return {"status": "processed"}
+        last_reply = final_messages[-1].content if final_messages else None
+        
+        return {
+            "status": "processed",
+            "channel": "whatsapp",
+            "user_id": from_phone,
+            "send_result": send_result,
+            "last_reply": last_reply
+        }
 
     except Exception as e:
         logger.error(f"Webhook processing error: {e}")
@@ -176,6 +180,7 @@ async def receive_instagram_webhook(payload: InstagramWebhookPayload):
         input_state = {
             "messages": [human_msg],
             "user_id": sender_id,
+            "session_id": sender_id,
             "platform": "instagram",
             "is_admin": False
         }
@@ -184,18 +189,21 @@ async def receive_instagram_webhook(payload: InstagramWebhookPayload):
         logger.info(f"Invoking Agent Graph for IG User {sender_id}...")
         final_state = await graph_app.ainvoke(input_state, config={"configurable": {"thread_id": sender_id}})
         
-        # Send Response
+        send_result = final_state.get("send_result")
         final_messages = final_state.get("messages", [])
-        if final_messages:
-            last_msg = final_messages[-1]
-            response_text = last_msg.content
-            await meta_service.send_instagram_text(sender_id, response_text)
-            
-        return {"status": "processed"}
+        last_reply = final_messages[-1].content if final_messages else None
+        
+        return {
+            "status": "processed",
+            "channel": "instagram",
+            "user_id": sender_id,
+            "send_result": send_result,
+            "last_reply": last_reply
+        }
 
     except Exception as e:
         logger.error(f"IG Webhook processing error: {e}")
-        return {"status": "error", "message": "Processing failed"}
+        return {"status": "error", "message": str(e)}
 
 # Paystack Webhook
 @router.post("/paystack")
