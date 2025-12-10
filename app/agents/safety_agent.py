@@ -21,7 +21,7 @@ async def safety_agent_node(state: AgentState):
     if not user_query:
         return {} # No text to check (e.g. image only)
 
-    safety_result = await check_safety.invoke(user_query)
+    safety_result = await check_safety.ainvoke(user_query)
     
     if safety_result == "unsafe":
         return {
