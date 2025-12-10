@@ -49,8 +49,6 @@ workflow.add_node("payment", payment_order_agent_node)
 # Edges
 workflow.add_edge(START, "router")
 workflow.add_conditional_edges("router", route_after_router)
-workflow.add_conditional_edges("safety", route_after_safety, {"END": END, "query_router": "query_router"}) # map simplified strings if needed, but here simple return works with logic
-
 # We need a dummy node or logic for "query_router" or just handle it in the edge function above mapping to node names directly.
 # Let's adjust route_after_safety to return node names directly.
 def route_after_safety_direct(state: AgentState):
