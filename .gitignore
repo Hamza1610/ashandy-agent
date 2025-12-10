@@ -5,4 +5,16 @@
 
 .env
 .env.*
-__pycache__
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.spec
+.DS_Store
+venv/
+.idea/
+.vscode/

@@ -26,35 +26,31 @@ async def verify_whatsapp_webhook(request: Request):
     return {"status": "ok"}
 
 @router.post("/whatsapp")
-async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
+async def receive_whatsapp_webhook(request: Request):
     """
-    Receive WhatsApp messages (Typed Schema).
+    Receive WhatsApp messages.
     """
-    from app.workflows.main_workflow import app as graph_app
+    from app.workflows.main_workflow import app as agent_app
     from langchain_core.messages import HumanMessage
-    from app.services.meta_service import meta_service
-    from app.models.agent_states import AgentState
 
+    payload = await request.json()
+    logger.info(f"Received WhatsApp webhook: {payload}")
+    
     try:
-        # Pydantic parsing happens automatically now.
-        # Access data via object attributes
-        if not payload.entry:
-             return {"status": "no_entry"}
-             
-        entry = payload.entry[0]
-        if not entry.changes:
-             return {"status": "no_changes"}
-             
-        change = entry.changes[0]
-        if not change.value.messages:
-             return {"status": "ignored_status_update"}
-             
-        message = change.value.messages[0]
-        from_phone = message.from_
-        msg_type = message.type
+        entry = payload.get("entry", [])[0]
+        changes = entry.get("changes", [])[0]
+        value = changes.get("value", {})
+        messages = value.get("messages", [])
+
+        if not messages:
+            return {"status": "no_messages"}
+
+        message = messages[0]
+        wa_id = message.get("from") # The user's phone number
         
-        user_message_content = ""
-        image_url = None
+        # Extract message content
+        content = ""
+        msg_type = message.get("type")
         
         if msg_type == "text" and message.text:
             user_message_content = message.text.body
@@ -111,11 +107,6 @@ async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
             "send_result": send_result,
             "last_reply": last_reply
         }
-
-    except Exception as e:
-        logger.error(f"Webhook processing error: {e}")
-        # Return 200 to prevent Meta retries on logic errors
-        return {"status": "error", "message": str(e)}
 
 # Instagram Webhook
 @router.get("/instagram")
