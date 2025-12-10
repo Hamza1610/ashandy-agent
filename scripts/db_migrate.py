@@ -1,4 +1,10 @@
 import asyncio
+import sys
+import os
+
+# Add the project root directory to the Python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from sqlalchemy.ext.asyncio import create_async_engine
 from app.models.db_models import Base
 from app.utils.config import settings

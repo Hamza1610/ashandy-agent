@@ -18,6 +18,8 @@ class VectorService:
                 self.pc = Pinecone(api_key=self.api_key)
                 self._ensure_index_exists(self.index_user_memory, dimension=384) # 384 for text
                 self._ensure_index_exists(self.index_products, dimension=768)   # 768 for vision
+                if hasattr(settings, "PINECONE_INDEX_PRODUCTS_TEXT"):
+                    self._ensure_index_exists(settings.PINECONE_INDEX_PRODUCTS_TEXT, dimension=384)
             except Exception as e:
                  logger.error(f"Failed to initialize Pinecone: {e}", exc_info=True)
         else:
@@ -45,7 +47,10 @@ class VectorService:
                     time.sleep(1)
                 logger.info(f"Index {index_name} is ready.")
         except Exception as e:
-            logger.error(f"Error checking/creating index {index_name}: {e}")
+            if "403" in str(e) and "max serverless indexes" in str(e):
+                logger.warning(f"Quota exceeded creating {index_name}. Assuming it exists or user will manage it.")
+            else:
+                logger.error(f"Error checking/creating index {index_name}: {e}")
 
     def upsert_vectors(self, index_name: str, vectors: list):
         if not self.pc:

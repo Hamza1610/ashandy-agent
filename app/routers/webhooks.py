@@ -52,32 +52,61 @@ async def receive_whatsapp_webhook(request: Request):
         content = ""
         msg_type = message.get("type")
         
-        if msg_type == "text":
-            content = message["text"]["body"]
-        elif msg_type == "image":
-            # For now just handle as text or pass image URL if we had it
-            # Ideally we extract the image ID and get the URL
-            content = "User sent an image" 
-            # Note: handling actual image retrieval requires Meta API call with media ID
-            # For this MVP step we focus on text/admin commands
-
-        if wa_id and content:
-            # Inputs for the flow
-            inputs = {
-                "messages": [HumanMessage(content=content)],
-                "user_id": wa_id,
-                "platform": "whatsapp",
-                "is_admin": False # Router will decide
-            }
+        if msg_type == "text" and message.text:
+            user_message_content = message.text.body
+        elif msg_type == "image" and message.image:
+            # Handle Image
+            media_id = message.image.id
+            caption = message.image.caption or ""
+            user_message_content = caption # Use caption as text context
             
-            # Run the graph
-            # Use ainvoke for async execution
-            await agent_app.ainvoke(inputs)
+            # Resolve URL
+            # Note: This URL is authenticated. The Visual Tool needs to handle it.
+            # Ideally we pass headers or download here. 
+            # For checking flows, we pass the URL. 
+            fetched_url = await meta_service.get_media_url(media_id)
+            if fetched_url:
+                image_url = fetched_url
+            else:
+                logger.warning(f"Could not resolve URL for media {media_id}")
             
-    except Exception as e:
-        logger.error(f"Error processing webhook: {e}")
-            
-    return {"status": "processed"}
+        # Construct Input State
+        # We need to pass the image URL in a way the Router understands.
+        # Router checks: additional_kwargs["image_url"] 
+        
+        msg_kwargs = {}
+        if image_url:
+            msg_kwargs["image_url"] = image_url
+            # Also constructing multimodal content block for LangChain purity
+            # content = [{"type": "text", "text": user_message_content}, {"type": "image_url", "image_url": {"url": image_url}}]
+        
+        human_msg = HumanMessage(content=user_message_content)
+        if image_url:
+             human_msg.additional_kwargs["image_url"] = image_url
+        
+        input_state = {
+            "messages": [human_msg],
+            "user_id": from_phone,
+            "session_id": from_phone,
+            "platform": "whatsapp",
+            "is_admin": False
+        }
+        
+        # Invoke Graph
+        logger.info(f"Invoking Agent Graph for {from_phone}...")
+        final_state = await graph_app.ainvoke(input_state, config={"configurable": {"thread_id": from_phone}})
+        
+        send_result = final_state.get("send_result")
+        final_messages = final_state.get("messages", [])
+        last_reply = final_messages[-1].content if final_messages else None
+        
+        return {
+            "status": "processed",
+            "channel": "whatsapp",
+            "user_id": from_phone,
+            "send_result": send_result,
+            "last_reply": last_reply
+        }
 
 # Instagram Webhook
 @router.get("/instagram")
@@ -142,6 +171,7 @@ async def receive_instagram_webhook(payload: InstagramWebhookPayload):
         input_state = {
             "messages": [human_msg],
             "user_id": sender_id,
+            "session_id": sender_id,
             "platform": "instagram",
             "is_admin": False
         }
@@ -150,18 +180,21 @@ async def receive_instagram_webhook(payload: InstagramWebhookPayload):
         logger.info(f"Invoking Agent Graph for IG User {sender_id}...")
         final_state = await graph_app.ainvoke(input_state, config={"configurable": {"thread_id": sender_id}})
         
-        # Send Response
+        send_result = final_state.get("send_result")
         final_messages = final_state.get("messages", [])
-        if final_messages:
-            last_msg = final_messages[-1]
-            response_text = last_msg.content
-            await meta_service.send_instagram_text(sender_id, response_text)
-            
-        return {"status": "processed"}
+        last_reply = final_messages[-1].content if final_messages else None
+        
+        return {
+            "status": "processed",
+            "channel": "instagram",
+            "user_id": sender_id,
+            "send_result": send_result,
+            "last_reply": last_reply
+        }
 
     except Exception as e:
         logger.error(f"IG Webhook processing error: {e}")
-        return {"status": "error", "message": "Processing failed"}
+        return {"status": "error", "message": str(e)}
 
 # Paystack Webhook
 @router.post("/paystack")

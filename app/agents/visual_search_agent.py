@@ -1,44 +1,56 @@
 from app.models.agent_states import AgentState
-from app.tools.visual_tools import process_image_for_search
-from app.tools.vector_tools import search_visual_products
-from langchain_core.messages import SystemMessage
+from app.tools.visual_tools import process_image_for_search, describe_image
+from app.tools.vector_tools import search_visual_products, search_text_products
 import logging
-import json
 
 logger = logging.getLogger(__name__)
 
 async def visual_search_agent_node(state: AgentState):
     """
-    Visual Search Agent: Processes image and finds products.
+    Visual Search Agent: Processes image -> Embeddings/Description -> Vector Search.
     """
-    image_url = state.get("image_url")
+    messages = state["messages"]
+    last_message = messages[-1]
+    
+    # We expect image_url in additional_kwargs (from webhook)
+    image_url = last_message.additional_kwargs.get("image_url")
+    
+    logger.info(f"Visual Search Agent processing. Image URL found: {image_url}")
+    
     if not image_url:
-        return {"error": "No image provided for visual search."}
+        return {"error": "No image provided."}
         
     try:
-        # 1. Generate visual embedding
-        # This will call the Refactored tool using DINOv2
-        embedding = await process_image_for_search.ainvoke(image_url)
+        # Strategy: Run Parallel (Visual DINO + Semantic Text)
         
-        if not embedding:
-             return {"error": "Failed to process image."}
-             
-        # 2. Query Pinecone using the embedding
-        # This calls the Refactored vector tool
-        # We assume the result is a string description of matches for now, 
-        # or we could refactor tool to return list and handle formatting here.
-        # The current tool returns a formatted string.
-        search_results = await search_visual_products.ainvoke(embedding)
+        # 1. Visual Path (DINOv2)
+        visual_results = ""
+        embedding = await process_image_for_search.ainvoke(image_url)
+        if embedding:
+            visual_results = await search_visual_products.ainvoke(embedding)
+            
+        # 2. Semantic Path (Image -> Text -> Vector)
+        # Fulfils "SAM/Extract Text" requirement
+        semantic_results = ""
+        description = await describe_image.ainvoke(image_url)
+        if description:
+            semantic_results = await search_text_products.ainvoke(description)
+        
+        combined_results = f"""
+        Results for Image:
+        [Description]: {description}
+        
+        {visual_results}
+        
+        {semantic_results}
+        """
         
         # 3. Store results in state for the response node
-        # We can parse the string or just carry it forward
-        # Ideally, we'd structure this better, but text is fine for LLM generation later.
-        
         return {
-            "visual_matches": [{"description": search_results}], # Storing mostly text rep for now
-            "messages": [SystemMessage(content=f"Found visual matches: {search_results}")]
+            "visual_matches": combined_results,
+            "query_type": "image" # confirm type
         }
         
     except Exception as e:
-        logger.error(f"Visual Search Agent Error: {e}")
-        return {"error": f"Visual search failed: {e}"}
+        logger.error(f"Visual Search Error: {e}")
+        return {"error": "Search failed."}

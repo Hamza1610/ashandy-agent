@@ -28,7 +28,7 @@ async def admin_agent_node(state: AgentState):
              
         elif command.startswith("/report"):
              date_str = datetime.now().strftime("%Y-%m-%d")
-             result = await generate_weekly_report.invoke(date_str)
+             result = await generate_weekly_report.ainvoke(date_str)
              response_text = result
              
         return {

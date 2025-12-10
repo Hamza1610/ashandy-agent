@@ -19,14 +19,21 @@ class Settings(BaseSettings):
     DB_MAX_OVERFLOW: int = 10
 
     # REDIS
-    REDIS_URL: str = "redis://localhost:6379/0"
+    # Redis: either set REDIS_URL or host/port/db with username/password
+    REDIS_URL: str | None = None
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_DB: int = 0
+    REDIS_USERNAME: str | None = None
+    REDIS_PASSWORD: str | None = None
     REDIS_CACHE_TTL: int = 3600
 
     # PINECONE
     PINECONE_API_KEY: Optional[str] = None
     PINECONE_ENVIRONMENT: Optional[str] = None
-    PINECONE_INDEX_USER_MEMORY: str = "user_memory"
-    PINECONE_INDEX_PRODUCTS: str = "products"
+    PINECONE_INDEX_USER_MEMORY: str = None
+    PINECONE_INDEX_PRODUCTS: str = None
+    PINECONE_INDEX_PRODUCTS_TEXT: str = None
 
     # META API
     META_WHATSAPP_TOKEN: Optional[str] = None
@@ -51,6 +58,7 @@ class Settings(BaseSettings):
 
     # POS
     POS_CONNECTOR_API_KEY: Optional[str] = None
+    PHPPOS_BASE_URL: Optional[str] = "https://ashandy.storeapp.com.ng/phppos/index.php/api/v1"
 
     # AI
     LLAMA_API_KEY: Optional[str] = None

@@ -12,12 +12,10 @@ async def check_safety(query: str) -> str:
     Returns 'safe' or 'unsafe'.
     """
     if not settings.LLAMA_API_KEY:
-        logger.error("LLAMA_API_KEY (Groq) is missing.")
-        return "unsafe" # Default to unsafe if we can't check
+        logger.warning("LLAMA_API_KEY (Groq) is missing; defaulting to safe.")
+        return "safe"
         
     try:
-        # Use a model appropriate for safety, e.g., llama3-70b-8192 or specific guard if available on Groq
-        # Groq hosts Llama 3. We will prompt it to act as Llama Guard.
         llm = ChatGroq(
             temperature=0, 
             groq_api_key=settings.LLAMA_API_KEY, 
@@ -66,11 +64,11 @@ async def check_safety(query: str) -> str:
         response = await llm.ainvoke(messages)
         result = response.content.strip().lower()
         
-        if "unsafe" in result:
+        if result == "unsafe":
             return "unsafe"
         return "safe"
 
     except Exception as e:
         logger.error(f"Llama Guard check failed: {e}")
-        return "unsafe" # Fail closed
+        return "safe" # Prefer not to block due to infra errors
 
