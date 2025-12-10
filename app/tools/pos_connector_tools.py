@@ -2,9 +2,76 @@ from langchain.tools import tool
 from app.services.db_service import AsyncSessionLocal
 from app.models.db_models import Product, Order
 from sqlalchemy import text
+from app.utils.config import settings
+import httpx
 import logging
 
 logger = logging.getLogger(__name__)
+
+@tool
+async def search_phppos_products(query: str) -> str:
+    """
+    Search for products, prices, and inventory directly from the PHPPOS system.
+    Use this to get the most up-to-date details when a user asks about a specific product.
+    """
+    url = f"{settings.PHPPOS_BASE_URL}/items" 
+    headers = {
+        "accept": "application/json",
+        "x-api-key": settings.PHPPOS_API_KEY
+    }
+    
+    logger.info(f"Executing search_phppos_products with query: '{query}'")
+    
+    try:
+        # Note: The API might support ?search_term= or similar. 
+        # If specific search param isn't documented, we might fetch recent/all and filter (inefficient but works for MVP/small catalog)
+        # OR we assume the query is an ID.
+        # Let's try appending search param if supported, otherwise filtering in memory.
+        # Based on typical PHPPOS, usually there's a search parameter. Let's try 'search'.
+        
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            # We'll try fetching all and filtering in python for now to be safe, 
+            # unless catalogue is huge. User indicated "fetch the product".
+            # Optimization: Use ingestion cache (Pinecone) for "Search" and this tool for "Details" if specific.
+            # But user wants this tool to "fetch product".
+            
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            items = response.json()
+            
+            # Simple fuzzy filter in Python
+            matches = []
+            query_lower = query.lower()
+            
+            for item in items:
+                name = item.get("name", "").lower()
+                # Check Name or Item ID
+                if query_lower in name or query_lower == str(item.get("item_id")):
+                    matches.append(item)
+                    if len(matches) >= 5: # Limit results
+                        break
+            
+            if not matches:
+                return "No matching products found in POS."
+                
+            # Format output
+            result_str = ""
+            for m in matches:
+                # Extract clean details
+                qty_data = m.get("locations", {}).get("1", {}).get("quantity", "N/A") # Assuming Loc 1
+                price = int(float(m.get("unit_price", 0)))
+                result_str += f"""
+- ID: {m.get('item_id')}
+  Name: {m.get('name')}
+  Price: ₦{price:,}
+  Stock: {qty_data}
+  Desc: {m.get('description', 'N/A')}
+"""
+            return result_str
+
+    except Exception as e:
+        logger.error(f"PHPPOS Fetch Error: {e}")
+        return "Error connecting to POS system."
 
 @tool
 async def sync_inventory_from_pos(data: list) -> str:

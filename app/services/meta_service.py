@@ -50,10 +50,19 @@ class MetaService:
                 
                 from twilio.rest import Client
                 client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+                
+                # Ensure 'from_' has 'whatsapp:' prefix if 'to' has it
+                # Usually Twilio WhatsApp senders are "whatsapp:+14155238886"
+                from_num = settings.TWILIO_PHONE_NUMBER
+                if not from_num.startswith("whatsapp:"):
+                    from_num = f"whatsapp:{from_num}"
+                
+                to_num = f"whatsapp:{to_phone}" if not to_phone.startswith("whatsapp:") else to_phone
+
                 message = client.messages.create(
                     body=text,
-                    from_=settings.TWILIO_PHONE_NUMBER,
-                    to=f"whatsapp:{to_phone}" if not to_phone.startswith("whatsapp:") else to_phone
+                    from_=from_num,
+                    to=to_num
                 )
                 logger.info(f"Twilio WhatsApp send success to {to_phone}: sid={message.sid}")
                 return {"status": "sent_via_twilio", "provider": "twilio", "sid": message.sid}

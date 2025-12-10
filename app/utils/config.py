@@ -31,8 +31,9 @@ class Settings(BaseSettings):
     # PINECONE
     PINECONE_API_KEY: Optional[str] = None
     PINECONE_ENVIRONMENT: Optional[str] = None
-    PINECONE_INDEX_USER_MEMORY: str = "user_memory"
-    PINECONE_INDEX_PRODUCTS: str = "products"
+    PINECONE_INDEX_USER_MEMORY: str = None
+    PINECONE_INDEX_PRODUCTS: str = None
+    PINECONE_INDEX_PRODUCTS_TEXT: str = None
 
     # META API
     META_WHATSAPP_TOKEN: Optional[str] = None
@@ -57,6 +58,7 @@ class Settings(BaseSettings):
 
     # POS
     POS_CONNECTOR_API_KEY: Optional[str] = None
+    PHPPOS_BASE_URL: Optional[str] = "https://ashandy.storeapp.com.ng/phppos/index.php/api/v1"
 
     # AI
     LLAMA_API_KEY: Optional[str] = None

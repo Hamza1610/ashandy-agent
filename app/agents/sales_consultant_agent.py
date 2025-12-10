@@ -1,7 +1,7 @@
 from app.models.agent_states import AgentState
 from app.tools.vector_tools import retrieve_user_memory
 from app.tools.cache_tools import check_semantic_cache, update_semantic_cache
-from app.tools.db_tools import get_product_details
+from app.tools.pos_connector_tools import search_phppos_products
 from langchain_groq import ChatGroq
 from app.utils.config import settings
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -18,6 +18,8 @@ async def sales_consultant_agent_node(state: AgentState):
     messages = state["messages"]
     last_message = messages[-1].content
     
+    logger.info(f"Sales Consultant Agent processing message for user {user_id}: '{last_message}'")
+    
     # 1. Check Semantic Cache
     query_hash = hashlib.md5(last_message.encode()).hexdigest()
     cached = await check_semantic_cache.ainvoke(query_hash)
@@ -27,7 +29,12 @@ async def sales_consultant_agent_node(state: AgentState):
         return {"cached_response": cached}
         
     # 2. Retrieve Context (User Memory)
-    user_context = await retrieve_user_memory.ainvoke(user_id)
+    try:
+        user_context = await retrieve_user_memory.ainvoke({"user_id": user_id})
+        
+    except Exception as e:
+        logger.error(f"Memory retrieval failed: {e}")
+        user_context = "Memory unavailable."
     
     # 3. Formulate Prompt
     # Check if there are visual matches from previous node
@@ -43,10 +50,11 @@ async def sales_consultant_agent_node(state: AgentState):
         # We search using the last message as a loose keyword
         # In a real system, we'd extract keywords first.
         try:
-             search_res = await get_product_details.ainvoke(last_message)
-             text_context = f"Database Search Results for '{last_message}':\n{search_res}"
+             # Use PHPPOS Tool for live data
+             search_res = await search_phppos_products.ainvoke(last_message)
+             text_context = f"Live POS Product Search Results for '{last_message}':\n{search_res}"
         except Exception as e:
-             logger.warning(f"Text search failed: {e}")
+             logger.warning(f"POS search failed: {e}")
              
     system_prompt = f"""You are 'Sabi', a helpful and knowledgeable sales assistant for a cosmetics shop.
     
@@ -56,13 +64,14 @@ async def sales_consultant_agent_node(state: AgentState):
     Visual Context (if any):
     {visual_context}
     
-    Product Database Context (Relevant to query):
+    Product Database Context (Live from PHPPOS):
     {text_context}
     
     Your goal is to help the customer, recommend products, and close sales. 
-    Be polite, concise, and professional. 
-    If you recommend a product, mention its price.
-    If the user wants to buy, ask for confirmation to generate a payment link.
+    1. ALWAYS use the 'Product Database Context' to verify Price and Stock availability before recommending.
+    2. If a product is not in the context, apologize and say you can't find it.
+    3. Be polite, concise, and professional. 
+    4. If the user wants to buy, ask for confirmation to generate a payment link.
     """
     
     conversation = [("system", system_prompt)] + \
@@ -89,6 +98,17 @@ async def sales_consultant_agent_node(state: AgentState):
              
         # 6. Update Cache
         await update_semantic_cache.ainvoke({"query_hash": query_hash, "response": ai_message})
+        
+        # 7. Save Interaction to Memory
+        try:
+            from app.tools.vector_tools import save_user_interaction
+            await save_user_interaction.ainvoke({
+                "user_id": user_id, 
+                "user_msg": last_message, 
+                "ai_msg": ai_message
+            })
+        except Exception as e:
+            logger.error(f"Background memory save failed: {e}")
         
         return {
             "messages": [SystemMessage(content=ai_message)],
