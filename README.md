@@ -13,12 +13,12 @@
 
 Retail businesses in Nigeria suffer from three core problems:
 1.  **Ghost Stock:** Online payments for items that are physically out of stock.
-2.  **Retail Amnesia:** Agents forget customer skin types and preferences.
+2.  **Retail Amnesia:** Agents forget customer preferences.
 3.  **Logistics Chaos:** Manual calculation of delivery fees leads to losses.
 
 **Awéléwà solves this by:**
 * **Seeing:** Identifies products from user photos using **Meta SAM + DINOv3**.
-* **Remembering:** Recalls user skin type/budget using **Pinecone Vector Memory**.
+* **Remembering:** Recalls user preferences/budget using **Pinecone Vector Memory**.
 * **Delivering:** Automatically calculates zone-based delivery fees and dispatches riders via **Twilio**.
 
 ---
@@ -77,12 +77,3 @@ Awéléwà uses **LangGraph** to orchestrate a team of 7 specialized AI Agents:
     * **Messaging:** WhatsApp Cloud API
     * **Payments:** Paystack API
     * **Logistics:** Twilio SMS
-
----
-
-## 🚀 Installation & Setup
-
-### 1. Clone the Repository
-```bash
-git clone [https://github.com/rain-robotics/awelewa-agent-backend.git](https://github.com/rain-robotics/awelewa-agent-backend.git)
-cd awelewa-agent-backend
