@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 # Sales agent tools for ToolNode
 from app.tools.product_tools import search_products, check_product_stock
-from app.tools.payment_tools import generate_payment_link  
+from app.tools.simple_payment_tools import request_payment_link  # Simple payment request
 from app.tools.memory_tools import save_memory
 
 # ========== HELPER NODES ==========
@@ -359,7 +359,7 @@ def should_continue_after_tools(state: AgentState):
 # ========== GRAPH CONSTRUCTION ==========
 
 # Create ToolNode with sales agent tools
-sales_tools = [search_products, check_product_stock, generate_payment_link, save_memory]
+sales_tools = [search_products, check_product_stock, request_payment_link, save_memory]
 tool_node = ToolNode(sales_tools)
 
 workflow = StateGraph(AgentState)
