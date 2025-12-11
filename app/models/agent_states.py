@@ -28,6 +28,11 @@ class AgentState(TypedDict):
     order_data: Optional[Dict]
     paystack_reference: Optional[str]
     
+    # Delivery
+    delivery_type: Optional[str] # "pickup" or "delivery"
+    delivery_details: Optional[Dict] # {name, phone, address, city, state}
+    delivery_fee: Optional[float]
+    
     # Sentiment & handoff
     sentiment_score: Optional[float]
     requires_handoff: bool

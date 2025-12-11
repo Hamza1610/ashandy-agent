@@ -22,20 +22,37 @@ async def payment_order_agent_node(state: AgentState):
     
     reference = str(uuid.uuid4())
     
+    # Store Order Details for later retrieval (Webhook)
+    order_data = state.get("order_data", {})
+    delivery_details = state.get("delivery_details", {})
+    delivery_fee = state.get("delivery_fee", 0)
+    
+    full_details = {
+        "items": order_data.get("items", []),
+        "subtotal": order_data.get("subtotal", amount),
+        "delivery_fee": delivery_fee,
+        "delivery_details": delivery_details,
+        "delivery_type": state.get("delivery_type", "Pickup")
+    }
+    
+    await create_order_record(
+        user_id=user_id,
+        amount=amount + delivery_fee,
+        reference=reference,
+        details=full_details
+    )
+    
     try:
         # 1. Generate Link
         link_result = await generate_payment_link.ainvoke({
             "email": email,
-            "amount": amount,
+            "amount": amount + delivery_fee, # Total
             "reference": reference
         })
         
         if "Failed" in link_result:
             return {"error": "Payment link generation failed."}
             
-        # 2. Create Order Record
-        # await create_order_record.ainvoke(user_id, amount, reference)
-        
         return {
             "paystack_reference": reference,
             "messages": [SystemMessage(content=f"Here is your payment link: {link_result}")]

@@ -86,24 +86,28 @@ async def sales_consultant_agent_node(state: AgentState):
        - NEVER recommend a product not in the list. Hallucination ruins trust.
        - If a requested item is missing, explicitly state: *"That specific item isn't in our database right now."* Then, use your marketing skills to recommend a *high-level available alternative* from the list.
 
-    3. **THE ₦25,000 SAFETY CLAUSE:**
+    3. **THE DELIVERY RULE:**
+       - Before closing ANY sale, you MUST ask: *"Would you like **Delivery** to your location, or will you **Pick Up** from our shop?"*
+       - **If Delivery:** You MUST ask for: **Full Name, Phone Number, and Full Address (including City & State)** used for the waybill.
+       - **If Pickup:** Confirm they know the shop location (Iyaganku, Ibadan).
+       - Do NOT generate a payment link until you have these details or confirmed pickup.
+
+    4. **THE ₦25,000 SAFETY CLAUSE:**
        - **Total > ₦25,000:** Do NOT generate the link yet. Say: *"That's a premium order! Let me just quickly confirm the physical stock with the Admin to ensure everything is perfect for you. One moment."*
        - **Total <= ₦25,000:** Proceed immediately to closing: *"Great choice! Shall I generate the payment link for you now?"*
 
     ### EXAMPLE INTERACTIONS
 
-    **CRM + Sales (Returning User):**
-    *History:* [Name: Amaka, Last bought: Lip Gloss]
-    *User:* "Do you have eye liner?"
-    *Awéléwà:* "Welcome back, Amaka! 💖 Yes, we have the Waterproof Eyeliner (₦3,500) in stock. It goes perfectly with the Lip Gloss you got last time. Shall I add it?"
+    **Closing (Delivery):**
+    *User:* "I'll take the powder and lipstick."
+    *Awéléwà:* "Excellent choice! Total is ₦9,500. Would you like Delivery or Pickup?"
+    *User:* "Delivery."
+    *Awéléwà:* "Okay! Please provide your Full Name, Phone Number, and Delivery Address (with City and State) for the invoice."
 
-    **Handling "No Consultation" (Professional):**
-    *User:* "I have bad dark spots, recommend a routine."
-    *Awéléwà:* "For a personalized routine to treat dark spots, it's best to see the Manager at our shop physically. But if you are looking for specific products like Vitamin C or Sunscreen, I can check the price for you right now!"
+    **Closing (Pickup):**
+    *User:* "I'll come to the shop."
+    *Awéléwà:* "Perfect! We are at Divine Favor Plaza, Iyaganku. See you soon!"
 
-    **Marketing/Upsell (Enterprising):**
-    *User:* "I need a powder."
-    *Awéléwà:* "Our Matte Finish Powder (₦6,000) is a top-seller! It gives a flawless look all day. It's definitely a must-have. Do you want the Light or Medium shade?"
     """
     
     conversation = [("system", system_prompt)] + \
@@ -123,11 +127,36 @@ async def sales_consultant_agent_node(state: AgentState):
         response = await llm.ainvoke(conversation)
         ai_message = response.content
         
-        # 5. Intent Detection (Simplified rule-based or second LLM call)
-        # Check if user wants to buy
-        if "buy" in last_message.lower() or "order" in last_message.lower() or "pay" in last_message.lower():
-             state["order_intent"] = True
+        # 5. Intent & Data Extraction
+        # We need to detect if the user is closing the deal and has provided details.
+        # A simple keyword check isn't enough for extraction. We'll run the extractor if "delivery" or "pickup" is mentioned in the last few turns OR strong buy intent.
+        
+        lower_msg = last_message.lower()
+        is_closing = any(k in lower_msg for k in ["delivery", "pickup", "address", "sent it", "details"])
+        
+        if is_closing:
+             from app.tools.order_extraction_tool import extract_order_details
              
+             # Format history for extraction
+             history_str = "\n".join([f"{m.type}: {m.content}" for m in messages[-10:]]) # Last 10 messages for context
+             
+             try:
+                 order_data = await extract_order_details.ainvoke(history_str)
+                 
+                 if "items" in order_data and order_data["items"]:
+                     state["order_intent"] = True
+                     state["order_data"] = order_data
+                     
+                     if order_data.get("delivery_type"):
+                         state["delivery_type"] = order_data["delivery_type"].lower()
+                         
+                     if order_data.get("delivery_details"):
+                         state["delivery_details"] = order_data["delivery_details"]
+                         
+                     logger.info(f"Order Extracted: {state['order_data']}")
+             except Exception as e:
+                 logger.error(f"Extraction trigger failed: {e}")
+        
         # 6. Update Cache
         await update_semantic_cache.ainvoke({"query_hash": query_hash, "response": ai_message})
         

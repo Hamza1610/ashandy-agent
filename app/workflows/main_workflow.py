@@ -6,10 +6,11 @@ from app.agents.safety_agent import safety_agent_node
 from app.agents.visual_search_agent import visual_search_agent_node
 from app.agents.payment_order_agent import payment_order_agent_node
 from app.agents.admin_agent import admin_agent_node
+from app.agents.delivery_agent import delivery_agent_node
+from app.agents.sales_consultant_agent import sales_consultant_agent_node
 from app.tools.cache_tools import check_semantic_cache, update_semantic_cache
 from app.tools.vector_tools import retrieve_user_memory
 from app.tools.sentiment_tool import analyze_sentiment
-from app.tools.db_tools import get_product_details
 from app.services.meta_service import meta_service
 from langchain_groq import ChatGroq
 from app.utils.config import settings
@@ -71,63 +72,7 @@ async def memory_retrieval_node(state: AgentState):
     return {"user_memory": user_memory}
 
 
-async def ai_generation_node(state: AgentState):
-    """
-    Generate the assistant response using Groq Llama 4 Scout with
-    memory, visual context, and DB product lookup.
-    """
-    messages = state.get("messages", [])
-    last_message = messages[-1] if messages else HumanMessage(content="")
-    last_text = last_message.content if isinstance(last_message, HumanMessage) else ""
 
-    user_context = state.get("user_memory") or ""
-    visual_context = ""
-    if state.get("visual_matches"):
-        visual_context = f"Visual matches: {state['visual_matches']}"
-
-    text_context = ""
-    if state.get("query_type") == "text" and last_text:
-        try:
-            search_res = await get_product_details.ainvoke(last_text)
-            text_context = f"Database Search Results for '{last_text}':\n{search_res}"
-        except Exception as e:
-            logger.warning(f"Text search failed: {e}")
-
-    system_prompt = f"""You are 'Sabi', a helpful, concise sales assistant for a cosmetics shop.
-Objectives:
-- Answer clearly and briefly (2-4 sentences) with actionable next steps.
-- Recommend products with names and prices when relevant.
-- If the user shows purchase intent, explicitly ask for confirmation to generate a payment link.
-- If information is missing (shade, size, skin type, budget), ask 1-2 targeted questions.
-- Do not fabricate products or prices; use provided context only. If unsure, say you need to check.
-- Keep tone warm, professional, and efficient. Avoid repetition.
-
-Context you can rely on:
-- User Context: {user_context}
-- Visual Context (if any): {visual_context}
-- Product DB Context (Relevant to query): {text_context}
-
-Formatting:
-- Use short paragraphs or bullet-like sentences separated by periods.
-- Avoid markdown.
-"""
-    conversation = [("system", system_prompt)] + [
-        ("human", m.content) if isinstance(m, HumanMessage) else ("ai", m.content) for m in messages[-5:]
-    ]
-
-    if not settings.LLAMA_API_KEY:
-        return {"error": "LLM API Key missing."}
-
-    llm = ChatGroq(
-        temperature=0.3,
-        groq_api_key=settings.LLAMA_API_KEY,
-        model_name="meta-llama/llama-4-scout-17b-16e-instruct",
-    )
-
-    response = await llm.ainvoke(conversation)
-    ai_message = response.content
-
-    return {"messages": messages + [SystemMessage(content=ai_message)]}
 
 
 async def cache_update_node(state: AgentState):
@@ -324,7 +269,7 @@ workflow.add_node("cache_hit_response", cache_hit_response_node)
 workflow.add_node("input_branch", lambda state: {})  # decision only
 workflow.add_node("memory", memory_retrieval_node)
 workflow.add_node("visual", visual_search_agent_node)
-workflow.add_node("ai", ai_generation_node)
+workflow.add_node("sales_agent", sales_consultant_agent_node)
 workflow.add_node("cache_update", cache_update_node)
 workflow.add_node("intent", intent_detection_node)
 workflow.add_node("payment", payment_order_agent_node)
@@ -338,19 +283,36 @@ workflow.add_node("response", response_node)
 workflow.add_node("admin", admin_agent_node)
 workflow.add_node("admin_update", admin_update_node)
 
+# Delivery
+workflow.add_node("delivery_agent", delivery_agent_node)
+
 # Edges
 workflow.add_edge(START, "router")
 workflow.add_conditional_edges("router", route_after_router)
-<<<<<<< HEAD
 workflow.add_conditional_edges("safety", route_after_safety)
 workflow.add_conditional_edges("cache_check", route_after_cache)
 workflow.add_edge("cache_hit_response", "response")
 workflow.add_conditional_edges("input_branch", route_input_branch)
-workflow.add_edge("visual", "ai")
-workflow.add_edge("memory", "ai")
-workflow.add_conditional_edges("ai", route_after_ai)
+workflow.add_edge("visual", "sales_agent")
+workflow.add_edge("memory", "sales_agent")
+workflow.add_conditional_edges("sales_agent", route_after_ai)
 workflow.add_conditional_edges("cache_update", route_after_cache_update)
-workflow.add_conditional_edges("intent", route_after_intent)
+
+# Modified Intent Routing to include Delivery Check
+def route_after_intent_delivery(state: AgentState):
+    # If order intent is present
+    if state.get("order_intent"):
+        # Check if we need delivery calculation (delivery type is delivery, but fee is not set)
+        if state.get("delivery_type") == "delivery" and state.get("delivery_fee") is None:
+            return "delivery_agent"
+        return "payment"
+    return "sentiment"
+
+workflow.add_conditional_edges("intent", route_after_intent_delivery)
+
+# Delivery Agent Edges
+workflow.add_edge("delivery_agent", "payment") # In this simplified flow, we go to payment. Ideally back to Sales for invoice, but "Payment" can generate link which is the goal.
+
 workflow.add_conditional_edges("payment", route_after_payment)
 workflow.add_conditional_edges("webhook_wait", route_after_webhook_wait)
 workflow.add_conditional_edges("sync", route_after_sync)
