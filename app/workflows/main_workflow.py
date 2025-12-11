@@ -104,7 +104,7 @@ async def ai_generation_node(state: AgentState):
         except Exception as e:
             logger.warning(f"Text search failed: {e}")
 
-    system_prompt = f"""You are 'Awelaea', a helpful, concise sales assistant for a cosmetics shop.
+    system_prompt = f"""You are 'Awelewa', a helpful, concise sales assistant for a cosmetics shop.
 Objectives:
 - Answer clearly and briefly (2-4 sentences) with actionable next steps.
 - Recommend products with names and prices when relevant.
