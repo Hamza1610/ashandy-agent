@@ -17,7 +17,7 @@ async def search_phppos_products(query: str) -> str:
     url = f"{settings.PHPPOS_BASE_URL}/items" 
     headers = {
         "accept": "application/json",
-        "x-api-key": settings.PHPPOS_API_KEY,
+        "x-api-key": settings.POS_CONNECTOR_API_KEY,
         "User-Agent": "curl/8.5.0"
     }
     

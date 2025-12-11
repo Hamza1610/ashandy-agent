@@ -4,6 +4,7 @@ This is the clean, modular implementation replacing main_workflow.py
 """
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.prebuilt import ToolNode  # For automatic tool execution
 from app.state.agent_state import AgentState
 from app.agents.router_agent import router_agent_node
 from app.agents.safety_agent import safety_agent_node
@@ -15,11 +16,16 @@ from app.tools.cache_tools import check_semantic_cache, update_semantic_cache
 from app.tools.vector_tools import retrieve_user_memory, save_user_interaction
 from app.tools.sentiment_tool import analyze_sentiment
 from app.services.meta_service import meta_service
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
 import hashlib
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Sales agent tools for ToolNode
+from app.tools.product_tools import search_products, check_product_stock
+from app.tools.payment_tools import generate_payment_link  
+from app.tools.memory_tools import save_memory
 
 # ========== HELPER NODES ==========
 
@@ -171,13 +177,28 @@ async def response_node(state: AgentState):
     messages = state.get("messages", [])
     
     text = ""
-    if messages:
-        last = messages[-1]
-        if hasattr(last, "content"):
-            text = last.content
+    # Find last AI message with actual text (skip tool calls)
+    for msg in reversed(messages):
+        # Skip human messages
+        if isinstance(msg, HumanMessage):
+            continue
+            
+        # Check if message has content
+        if hasattr(msg, "content") and msg.content:
+            # Skip if it's just a tool call (empty content)
+            if hasattr(msg, 'tool_calls') and msg.tool_calls and not msg.content.strip():
+                logger.info(f"Skipping tool call message")
+                continue
+                
+            text = msg.content
+            logger.info(f"Found AI response: '{text[:100]}'")
+            break
     
     if not text:
         text = "Thank you for contacting us."
+        logger.warning(f"No AI response found, using fallback")
+    
+    logger.info(f"RESULT FROM AGENT: {text}")
     
     # Send via platform
     send_result = {"status": "skipped"}
@@ -245,37 +266,47 @@ async def notification_node(state: AgentState):
 
 def route_after_router(state: AgentState):
     """Route based on admin status."""
-    if state.get("is_admin"):
-        return "admin"
-    return "safety"
+    is_admin = state.get("is_admin")
+    route = "admin" if is_admin else "safety"
+    print(f"\n>>> ROUTING: after_router → {route}")
+    logger.info(f"🔀 route_after_router → {route}")
+    return route
 
 
 def route_after_safety(state: AgentState):
     """Check if message was blocked."""
-    if state.get("error"):
-        return "safety_log"
-    return "cache_check"
+    error = state.get("error")
+    route = "safety_log" if error else "input_branch"  # BYPASS cache - go straight to input_branch
+    print(f">>> ROUTING: after_safety → {route}")
+    logger.info(f"🔀 route_after_safety → {route}")
+    return route
 
 
 def route_after_cache(state: AgentState):
     """Check for cache hit."""
-    if state.get("cached_response"):
-        return "cache_hit_response"
-    return "input_branch"
+    cached = state.get("cached_response")
+    route = "cache_hit_response" if cached else "input_branch"
+    print(f">>> ROUTING: after_cache (cached={bool(cached)}) → {route}")
+    logger.info(f"🔀 route_after_cache → {route}")
+    return route
 
 
 def route_input_branch(state: AgentState):
     """Route by query type (image vs text)."""
-    if state.get("query_type") == "image":
-        return "visual"
-    return "memory"
+    query_type = state.get("query_type")
+    route = "visual" if query_type == "image" else "memory"
+    print(f">>> ROUTING: input_branch (query_type={query_type}) → {route}")
+    logger.info(f"🔀 route_input_branch: query_type={query_type} → {route}")
+    return route
 
 
 def route_after_intent(state: AgentState):
     """Route to payment if order intent detected."""
-    if state.get("order_intent"):
-        return "payment"
-    return "sentiment"
+    order_intent = state.get("order_intent")
+    route = "payment" if order_intent else "sentiment"
+    print(f"\n>>> ROUTING: after_intent (order_intent={order_intent}) → {route}")
+    logger.info(f"🔀 route_after_intent: order_intent={order_intent} → {route}")
+    return route
 
 
 def route_after_payment(state: AgentState):
@@ -295,10 +326,41 @@ def route_after_sync(state: AgentState):
 
 def route_after_notification(state: AgentState):
     """After notification, do sentiment analysis."""
+    logger.info(f"🔀 route_after_notification → sentiment")
     return "sentiment"
 
 
+def route_after_sales(state: AgentState):
+    """Route after sales agent - check if tools need to be executed."""
+    messages = state.get("messages", [])
+    if not messages:
+        return "cache_update"
+    
+    last_message = messages[-1]
+    
+    # Check if last message has tool_calls
+    if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+        print(f"\n>>> ROUTING: Sales agent requested tools, going to tool_execution")
+        logger.info("🔀 route_after_sales: has tool_calls → tool_execution")
+        return "tool_execution"
+    
+    # No tool calls, proceed to cache update
+    print(f"\n>>> ROUTING: No tools needed, proceeding to cache_update")
+    logger.info("🔀 route_after_sales: no tool_calls → cache_update")
+    return "cache_update"
+
+
+def should_continue_after_tools(state: AgentState):
+    """After tool execution, go back to sales agent for final response."""
+    logger.info("🔀 after tools → sales (for final response)")
+    return "sales"
+
+
 # ========== GRAPH CONSTRUCTION ==========
+
+# Create ToolNode with sales agent tools
+sales_tools = [search_products, check_product_stock, generate_payment_link, save_memory]
+tool_node = ToolNode(sales_tools)
 
 workflow = StateGraph(AgentState)
 
@@ -312,6 +374,7 @@ workflow.add_node("input_branch", lambda state: {})  # Decision point
 workflow.add_node("memory", memory_retrieval_node)
 workflow.add_node("visual", visual_search_agent_node)
 workflow.add_node("sales", sales_agent_node)
+workflow.add_node("tool_execution", tool_node)  # NEW: Automatic tool execution
 workflow.add_node("cache_update", cache_update_node)
 workflow.add_node("intent", intent_detection_node)
 workflow.add_node("payment", payment_order_agent_node)
@@ -343,7 +406,8 @@ workflow.add_conditional_edges("notification", route_after_notification)
 workflow.add_edge("cache_hit_response", "response")
 workflow.add_edge("visual", "sales")
 workflow.add_edge("memory", "sales")
-workflow.add_edge("sales", "cache_update")
+workflow.add_conditional_edges("sales", route_after_sales)  # NEW: Check for tool calls
+workflow.add_conditional_edges("tool_execution", should_continue_after_tools)  # NEW: Back to sales after tools
 workflow.add_edge("cache_update", "intent")
 workflow.add_edge("sentiment", "response")
 workflow.add_edge("response", END)

@@ -25,10 +25,13 @@ async def search_products(query: str) -> str:
         Formatted string with product matches including names, prices, and availability
     """
     try:
+        print(f"\n>>> TOOL: search_products called with query='{query}'")
         logger.info(f"Product search tool called with query: '{query}'")
         
         # Use existing POS connector tool
         results = await search_phppos_products.ainvoke(query)
+        
+        print(f">>> TOOL: search_products got results: {results[:100] if results else 'NONE'}...")
         
         if not results or "No products found" in results:
             return f"No products found matching '{query}'. Please try different keywords."
@@ -36,7 +39,11 @@ async def search_products(query: str) -> str:
         return f"Product Search Results:\n{results}"
         
     except Exception as e:
-        logger.error(f"Product search failed: {e}")
+        print(f"\n>>> TOOL ERROR in search_products: {type(e).__name__}: {str(e)}")
+        import traceback
+        error_details = traceback.format_exc()
+        print(f">>> TOOL ERROR TRACEBACK:\n{error_details}")
+        logger.error(f"Product search failed: {e}", exc_info=True)
         return f"I encountered an error searching for products. Please try again."
 
 

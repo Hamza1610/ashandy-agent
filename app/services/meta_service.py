@@ -45,35 +45,36 @@ class MetaService:
         #         logger.error(f"Meta WhatsApp failed: {e}. Attempting Twilio Fallback...")
 
         # 2. Fallback to Twilio
-        if settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN and settings.TWILIO_PHONE_NUMBER:
-            try:
+        # if settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN and settings.TWILIO_PHONE_NUMBER:
+        #     try:
                 
-                from twilio.rest import Client
-                client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+        #         from twilio.rest import Client
+        #         client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
                 
-                # Ensure 'from_' has 'whatsapp:' prefix if 'to' has it
-                # Usually Twilio WhatsApp senders are "whatsapp:+14155238886"
-                from_num = settings.TWILIO_PHONE_NUMBER
-                if not from_num.startswith("whatsapp:"):
-                    from_num = f"whatsapp:{from_num}"
+        #         # Ensure 'from_' has 'whatsapp:' prefix if 'to' has it
+        #         # Usually Twilio WhatsApp senders are "whatsapp:+14155238886"
+        #         from_num = settings.TWILIO_PHONE_NUMBER
+        #         if not from_num.startswith("whatsapp:"):
+        #             from_num = f"whatsapp:{from_num}"
                 
-                # Normalize 'to_phone' to E.164 if it looks like a local Nigerian number
-                clean_to = to_phone.strip()
-                if clean_to.startswith("0") and len(clean_to) == 11 and clean_to.isdigit():
-                    clean_to = "+234" + clean_to[1:]
+        #         # Normalize 'to_phone' to E.164 if it looks like a local Nigerian number
+        #         clean_to = to_phone.strip()
+        #         if clean_to.startswith("0") and len(clean_to) == 11 and clean_to.isdigit():
+        #             clean_to = "+234" + clean_to[1:]
                 
-                to_num = f"whatsapp:{clean_to}" if not clean_to.startswith("whatsapp:") else clean_to
+        #         to_num = f"whatsapp:{clean_to}" if not clean_to.startswith("whatsapp:") else clean_to
 
-                message = client.messages.create(
-                    body=text,
-                    from_=from_num,
-                    to=to_num
-                )
-                logger.info(f"Twilio WhatsApp send success to {to_phone}: sid={message.sid}")
-                return {"status": "sent_via_twilio", "provider": "twilio", "sid": message.sid}
-            except Exception as e:
-                logger.error(f"Twilio Fallback failed: {e}")
-                return {"status": "error", "provider": "twilio", "error": str(e)}
+        #         message = client.messages.create(
+        #             body=text,
+        #             from_=from_num,
+        #             to=to_num
+        #         )
+        #         logger.info(f"Twilio WhatsApp send success to {to_phone}: sid={message.sid}")
+        #         return {"status": "sent_via_twilio", "provider": "twilio", "sid": message.sid}
+        # return {"status": "sent_via_twilio", "provider": "twilio", "sid": "message.sid"}
+            # except Exception as e:
+            #     logger.error(f"Twilio Fallback failed: {e}")
+            #     return {"status": "error", "provider": "twilio", "error": str(e)}
         
         return {"status": "error", "provider": "meta", "error": "Meta failed and Twilio credentials missing."}
 
