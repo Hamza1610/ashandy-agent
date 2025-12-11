@@ -30,7 +30,7 @@ async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
     """
     Receive WhatsApp messages.
     """
-    from app.workflows.main_workflow import app as agent_app
+    from app.graphs.main_graph import app as agent_app
     from langchain_core.messages import HumanMessage
     from app.services.meta_service import meta_service
 
@@ -144,7 +144,7 @@ async def verify_instagram_webhook(request: Request):
 
 @router.post("/instagram")
 async def receive_instagram_webhook(payload: InstagramWebhookPayload):
-    from app.workflows.main_workflow import app as graph_app
+    from app.graphs.main_graph import app as graph_app
     from langchain_core.messages import HumanMessage
     from app.services.meta_service import meta_service
 

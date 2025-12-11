@@ -18,31 +18,31 @@ class MetaService:
     async def send_whatsapp_text(self, to_phone: str, text: str):
         print("RESULT FROM AGENT:", text)
         # 1. Try Meta API First
-        if self.wa_token and self.wa_phone_id:
-            try:
-                headers = {
-                    "Authorization": f"Bearer {self.wa_token}",
-                    "Content-Type": "application/json"
-                }
-                payload = {
-                    "messaging_product": "whatsapp",
-                    "to": to_phone,
-                    "type": "text",
-                    "text": {"body": text}
-                }
+        # if self.wa_token and self.wa_phone_id:
+        #     try:
+        #         headers = {
+        #             "Authorization": f"Bearer {self.wa_token}",
+        #             "Content-Type": "application/json"
+        #         }
+        #         payload = {
+        #             "messaging_product": "whatsapp",
+        #             "to": to_phone,
+        #             "type": "text",
+        #             "text": {"body": text}
+        #         }
 
 
-                async with httpx.AsyncClient() as client:
-                    response = await client.post(self.wa_url, headers=headers, json=payload)
-                    response.raise_for_status()
-                    data = response.json()
-                    logger.info(f"Meta WhatsApp send success to {to_phone}: {data}")
-                    return {"status": "sent_via_meta", "provider": "meta", "response": data}
-            except httpx.HTTPStatusError as e:
-                logger.error(f"Meta WhatsApp 401/403 Error: {e.response.text}. Token may be invalid.")
-                # Proceed to fallback
-            except Exception as e:
-                logger.error(f"Meta WhatsApp failed: {e}. Attempting Twilio Fallback...")
+        #         async with httpx.AsyncClient() as client:
+        #             response = await client.post(self.wa_url, headers=headers, json=payload)
+        #             response.raise_for_status()
+        #             data = response.json()
+        #             logger.info(f"Meta WhatsApp send success to {to_phone}: {data}")
+        #             return {"status": "sent_via_meta", "provider": "meta", "response": data}
+        #     except httpx.HTTPStatusError as e:
+        #         logger.error(f"Meta WhatsApp 401/403 Error: {e.response.text}. Token may be invalid.")
+        #         # Proceed to fallback
+        #     except Exception as e:
+        #         logger.error(f"Meta WhatsApp failed: {e}. Attempting Twilio Fallback...")
 
         # 2. Fallback to Twilio
         if settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN and settings.TWILIO_PHONE_NUMBER:
