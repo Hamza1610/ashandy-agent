@@ -54,15 +54,20 @@ class VectorService:
 
     def upsert_vectors(self, index_name: str, vectors: list):
         if not self.pc:
-            logger.error("Pinecone client not initialized.")
+            logger.error("Pinecone client not initialized. Check PINECONE_API_KEY in settings.")
+            raise ValueError("Pinecone client not initialized")
+
+        if not vectors:
+            logger.warning("No vectors provided to upsert")
             return
 
         try:
-             index = self.pc.Index(index_name)
-             index.upsert(vectors=vectors)
-             logger.info(f"Successfully upserted {len(vectors)} vectors to {index_name}")
+            logger.info(f"Upserting {len(vectors)} vectors to index '{index_name}'")
+            index = self.pc.Index(index_name)
+            result = index.upsert(vectors=vectors)
+            logger.info(f"Successfully upserted {len(vectors)} vectors to {index_name}. Result: {result}")
         except Exception as e:
-            logger.error(f"Pinecone upsert error in {index_name}: {e}")
+            logger.error(f"Pinecone upsert error in {index_name}: {e}", exc_info=True)
             raise e
 
     def query_vectors(self, index_name: str, vector: list, top_k: int = 5, filter_metadata: dict = None):
