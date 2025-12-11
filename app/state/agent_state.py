@@ -1,0 +1,102 @@
+"""
+Clean, unified state schema for the Awelewa agent system.
+This follows strict typing and consistent naming conventions.
+"""
+from typing import TypedDict, Annotated, List, Dict, Optional, Literal
+from langchain_core.messages import BaseMessage
+from langgraph.graph import add_messages
+
+
+class AgentState(TypedDict):
+    """
+    Unified state schema for all agents in the system.
+    
+    Design Principles:
+    - Single source of truth for all state keys
+    - Strict typing with Literal for enums
+    - No duplicate or inconsistent keys
+    - All optional fields explicitly marked
+    """
+    
+    # ========== Core Conversation ==========
+    messages: Annotated[List[BaseMessage], add_messages]
+    """Conversation history with automatic message accumulation"""
+    
+    user_id: str
+    """User identifier (WhatsApp phone number or Instagram ID)"""
+    
+    session_id: str
+    """Session identifier for conversation tracking"""
+    
+    platform: Literal["whatsapp", "instagram"]
+    """Platform the message originated from"""
+    
+    # ========== Routing ==========
+    is_admin: bool
+    """Whether the user is an admin (whitelisted)"""
+    
+    query_type: Literal["admin", "text", "image"]
+    """Type of query being processed"""
+    
+    # ========== Safety ==========
+    blocked: bool
+    """Whether the message was blocked by safety checks"""
+    
+    # ========== Memory & Context ==========
+    user_memory: Optional[Dict]
+    """User preferences and history from Pinecone vector store"""
+    
+    cached_response: Optional[str]
+    """Cached response from Redis semantic cache"""
+    
+    query_hash: Optional[str]
+    """Hash of the current query for cache operations"""
+    
+    last_user_message: Optional[str]
+    """The original user message text for memory saving"""
+    
+    # ========== Visual Search ==========
+    image_url: Optional[str]
+    """URL of uploaded image for visual search"""
+    
+    visual_context: Optional[Dict]
+    """Visual search results from SAM + DINOv3"""
+    
+    visual_matches: Optional[List[Dict]]
+    """Product matches from visual search"""
+    
+    # ========== Sales & Products ==========
+    product_recommendations: Optional[List[Dict]]
+    """Product recommendations from sales agent"""
+    
+    # ========== Order Management ==========
+    order_intent: bool
+    """Whether user has purchase intent"""
+    
+    order: Optional[Dict]
+    """Order details (items, amount, email, etc.)"""
+    
+    order_data: Optional[Dict]
+    """Alternative key for order details (backward compatibility)"""
+    
+    paystack_reference: Optional[str]
+    """Paystack payment reference ID"""
+    
+    # ========== Sentiment & Handoff ==========
+    sentiment_score: Optional[float]
+    """Sentiment score from analysis (-1.0 to 1.0)"""
+    
+    requires_handoff: bool
+    """Whether conversation requires human handoff"""
+    
+    # ========== Admin ==========
+    admin_command: Optional[str]
+    """Admin command string (e.g., /stock, /report)"""
+    
+    # ========== Error Handling ==========
+    error: Optional[str]
+    """Error message if any step fails"""
+    
+    # ========== Response Metadata ==========
+    send_result: Optional[Dict]
+    """Result of sending message via Meta API"""

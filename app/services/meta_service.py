@@ -18,62 +18,63 @@ class MetaService:
     async def send_whatsapp_text(self, to_phone: str, text: str):
         print("RESULT FROM AGENT:", text)
         # 1. Try Meta API First
-        if self.wa_token and self.wa_phone_id:
-            try:
-                headers = {
-                    "Authorization": f"Bearer {self.wa_token}",
-                    "Content-Type": "application/json"
-                }
-                payload = {
-                    "messaging_product": "whatsapp",
-                    "to": to_phone,
-                    "type": "text",
-                    "text": {"body": text}
-                }
+        # if self.wa_token and self.wa_phone_id:
+        #     try:
+        #         headers = {
+        #             "Authorization": f"Bearer {self.wa_token}",
+        #             "Content-Type": "application/json"
+        #         }
+        #         payload = {
+        #             "messaging_product": "whatsapp",
+        #             "to": to_phone,
+        #             "type": "text",
+        #             "text": {"body": text}
+        #         }
 
 
-                async with httpx.AsyncClient() as client:
-                    response = await client.post(self.wa_url, headers=headers, json=payload)
-                    response.raise_for_status()
-                    data = response.json()
-                    logger.info(f"Meta WhatsApp send success to {to_phone}: {data}")
-                    return {"status": "sent_via_meta", "provider": "meta", "response": data}
-            except httpx.HTTPStatusError as e:
-                logger.error(f"Meta WhatsApp 401/403 Error: {e.response.text}. Token may be invalid.")
-                # Proceed to fallback
-            except Exception as e:
-                logger.error(f"Meta WhatsApp failed: {e}. Attempting Twilio Fallback...")
+        #         async with httpx.AsyncClient() as client:
+        #             response = await client.post(self.wa_url, headers=headers, json=payload)
+        #             response.raise_for_status()
+        #             data = response.json()
+        #             logger.info(f"Meta WhatsApp send success to {to_phone}: {data}")
+        #             return {"status": "sent_via_meta", "provider": "meta", "response": data}
+        #     except httpx.HTTPStatusError as e:
+        #         logger.error(f"Meta WhatsApp 401/403 Error: {e.response.text}. Token may be invalid.")
+        #         # Proceed to fallback
+        #     except Exception as e:
+        #         logger.error(f"Meta WhatsApp failed: {e}. Attempting Twilio Fallback...")
 
         # 2. Fallback to Twilio
-        if settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN and settings.TWILIO_PHONE_NUMBER:
-            try:
+        # if settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN and settings.TWILIO_PHONE_NUMBER:
+        #     try:
                 
-                from twilio.rest import Client
-                client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+        #         from twilio.rest import Client
+        #         client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
                 
-                # Ensure 'from_' has 'whatsapp:' prefix if 'to' has it
-                # Usually Twilio WhatsApp senders are "whatsapp:+14155238886"
-                from_num = settings.TWILIO_PHONE_NUMBER
-                if not from_num.startswith("whatsapp:"):
-                    from_num = f"whatsapp:{from_num}"
+        #         # Ensure 'from_' has 'whatsapp:' prefix if 'to' has it
+        #         # Usually Twilio WhatsApp senders are "whatsapp:+14155238886"
+        #         from_num = settings.TWILIO_PHONE_NUMBER
+        #         if not from_num.startswith("whatsapp:"):
+        #             from_num = f"whatsapp:{from_num}"
                 
-                # Normalize 'to_phone' to E.164 if it looks like a local Nigerian number
-                clean_to = to_phone.strip()
-                if clean_to.startswith("0") and len(clean_to) == 11 and clean_to.isdigit():
-                    clean_to = "+234" + clean_to[1:]
+        #         # Normalize 'to_phone' to E.164 if it looks like a local Nigerian number
+        #         clean_to = to_phone.strip()
+        #         if clean_to.startswith("0") and len(clean_to) == 11 and clean_to.isdigit():
+        #             clean_to = "+234" + clean_to[1:]
                 
-                to_num = f"whatsapp:{clean_to}" if not clean_to.startswith("whatsapp:") else clean_to
+        #         to_num = f"whatsapp:{clean_to}" if not clean_to.startswith("whatsapp:") else clean_to
 
-                message = client.messages.create(
-                    body=text,
-                    from_=from_num,
-                    to=to_num
-                )
-                logger.info(f"Twilio WhatsApp send success to {to_phone}: sid={message.sid}")
-                return {"status": "sent_via_twilio", "provider": "twilio", "sid": message.sid}
-            except Exception as e:
-                logger.error(f"Twilio Fallback failed: {e}")
-                return {"status": "error", "provider": "twilio", "error": str(e)}
+        #         message = client.messages.create(
+        #             body=text,
+        #             from_=from_num,
+        #             to=to_num
+        #         )
+        #         logger.info(f"Twilio WhatsApp send success to {to_phone}: sid={message.sid}")
+        #         return {"status": "sent_via_twilio", "provider": "twilio", "sid": message.sid}
+        # return {"status": "sent_via_twilio", "provider": "twilio", "sid": "message.sid"}
+            # except Exception as e:
+            #     logger.error(f"Twilio Fallback failed: {e}")
+            #     return {"status": "error", "provider": "twilio", "error": str(e)}
         
         return {"status": "error", "provider": "meta", "error": "Meta failed and Twilio credentials missing."}
 

@@ -1,4 +1,4 @@
-from app.models.agent_states import AgentState
+from app.state.agent_state import AgentState
 from app.tools.db_tools import check_admin_whitelist
 from langchain_core.messages import HumanMessage
 import logging

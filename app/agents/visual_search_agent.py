@@ -1,4 +1,4 @@
-from app.models.agent_states import AgentState
+from app.state.agent_state import AgentState
 from app.tools.visual_tools import process_image_for_search, describe_image
 from app.tools.vector_tools import search_visual_products, search_text_products
 import logging
