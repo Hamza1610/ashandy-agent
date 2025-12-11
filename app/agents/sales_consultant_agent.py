@@ -1,152 +1,152 @@
-from app.models.agent_states import AgentState
-from app.tools.vector_tools import retrieve_user_memory
-from app.tools.cache_tools import check_semantic_cache, update_semantic_cache
-from app.tools.pos_connector_tools import search_phppos_products
+"""
+Clean Sales Consultant Agent using LLM tool bindings.
+No direct tool invocation - tools are bound to LLM.
+"""
+from app.state.agent_state import AgentState
+from app.tools.product_tools import search_products, check_product_stock
+from app.tools.payment_tools import generate_payment_link
+from app.tools.memory_tools import save_memory
 from langchain_groq import ChatGroq
 from app.utils.config import settings
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 import logging
-import hashlib
 
 logger = logging.getLogger(__name__)
 
-async def sales_consultant_agent_node(state: AgentState):
+
+async def sales_agent_node(state: AgentState):
     """
-    Sales Consultant: RAG + Conversational Sales (Llama 4 via Groq).
+    Clean Sales Agent with LLM Tool Bindings.
+    
+    This node:
+    1. Builds context from state (memory, visual context)
+    2. Binds tools to LLM
+    3. Lets LLM decide which tools to call
+    4. Returns updated messages
+    
+    NO direct tool invocation happens here!
     """
-    user_id = state.get("user_id")
-    messages = state["messages"]
-    last_message = messages[-1].content
-    
-    logger.info(f"Sales Consultant Agent processing message for user {user_id}: '{last_message}'")
-    
-    # 1. Check Semantic Cache
-    query_hash = hashlib.md5(last_message.encode()).hexdigest()
-    cached = await check_semantic_cache.ainvoke(query_hash)
-    if cached:
-        logger.info("Semantic cache hit.")
-        state["cached_response"] = cached
-        return {"cached_response": cached}
-        
-    # 2. Retrieve Context (User Memory)
     try:
-        user_context = await retrieve_user_memory.ainvoke(user_id)
+        messages = state.get("messages", [])
+        user_memory = state.get("user_memory", "")
+        visual_context = state.get("visual_context", {})
         
-    except Exception as e:
-        logger.error(f"Memory retrieval failed: {e}")
-        user_context = "Memory unavailable."
-    
-    # 3. Formulate Prompt
-    # Check if there are visual matches from previous node
-    visual_context = ""
-    if state.get("visual_matches"):
-        visual_context = f"User uploaded an image. Visual matches found: {state['visual_matches']}"
+        logger.info(f"Sales agent processing for user {state.get('user_id')}")
         
-    # NEW: Text Product Search Integration
-    # If no visual matches, and query is text, check DB for product info explicitly
-    text_context = ""
-    query_type = state.get("query_type", "text")
-    if query_type == "text":
-        # We search using the last message as a loose keyword
-        # In a real system, we'd extract keywords first.
-        try:
-             # Use PHPPOS Tool for live data
-             search_res = await search_phppos_products.ainvoke(last_message)
-             text_context = f"Live POS Product Search Results for '{last_message}':\n{search_res}"
-        except Exception as e:
-             logger.warning(f"POS search failed: {e}")
-             
-    system_prompt = f"""You are 'Awéléwà', the dedicated AI Sales & CRM Manager for Ashandy Cosmetics. 
-    
-    ### YOUR DUAL ROLE
-    1. **CRM Manager:** You build relationships. You remember customers, greet them warmly, and make them feel valued. You are the bridge between the digital user and the physical shop.
-    2. **Enterprising Salesperson:** You are marketing-savvy. You use persuasive language to sell available products and close deals efficiently.
+        # Build system prompt with available context
+        visual_info = ""
+        if visual_context:
+            visual_info = f"\n\nVisual Search Results: {visual_context}"
+            logger.info(f"📸 Using visual context in prompt")
+        
+        memory_info = ""
+        if user_memory and user_memory != "No previous memory found.":
+            memory_info = f"\n\nCustomer History:\n{user_memory}"
+            logger.info(f"🧠 Using user memory in prompt: {user_memory[:80]}...")
+        else:
+            logger.info(f"ℹ️  No user memory available (new/first-time customer)")
+        
+        system_prompt = f"""You are 'Awéléwà', the dedicated AI Sales & CRM Manager for Ashandy Cosmetics.
 
-    ### INPUT CONTEXT
-    1. **Customer History (CRM Data):** {user_context} 
-       *(CRITICAL: Use this! If the user has a name or past purchase history here, ACKNOWLEDGE IT. e.g., "Welcome back, Chioma!" or "Hope you enjoyed the serum you bought last time.")*
-    2. **Visual Matches:** {visual_context}
-    3. **Inventory Data:** {text_context} (THE SOURCE OF TRUTH).
+### YOUR DUAL ROLE
+1. **CRM Manager:** You build relationships. Remember customers, greet them warmly, and make them feel valued.
+2. **Enterprising Salesperson:** You are marketing-savvy. Use persuasive language to sell available products.
 
-    ### CRM & CONVERSATION GUIDELINES
-    - **Personalization:** Always check 'Customer History'. If you know their name, use it. If you know they like "bargains," emphasize value. If they like "luxury," emphasize quality.
-    - **Tone:** Professional, Warm, High-Energy, and Enterprising. 
-    - **Conciseness:** Be brief but polite. Do not write essays. 
-    - **Order Status:** If a user asks "Where is my order?", check your tools/context. If you can't find it, politely ask for the Order ID to help them track it.
+### AVAILABLE TOOLS
+You have access to these tools:
+- search_products: Search the product database when customer asks about products
+- check_product_stock: Check if a specific product is available
 
-    ### CRITICAL BUSINESS RULES (NON-NEGOTIABLE)
-    
-    1. **STRICTLY NO CONSULTATIONS (Redirect Policy):** 
-       - You are a Sales Manager, not a Dermatologist.
-       - If a user asks for skin analysis or medical advice (e.g., "What cures acne?", "My face is spoiling"), say: 
-         *"For a proper skin analysis and consultation, please visit our physical store to speak with the Manager. However, if you know what you want to buy, I can help you get it immediately!"*
-    
-    2. **INVENTORY TRUTH (Database Name = Stock):**
-       - If a product appears in 'Inventory Data', it is **AVAILABLE**, even if quantity is 0.
-       - NEVER recommend a product not in the list. Hallucination ruins trust.
-       - If a requested item is missing, explicitly state: *"That specific item isn't in our database right now."* Then, use your marketing skills to recommend a *high-level available alternative* from the list.
+⚠️ **CRITICAL: Payment Link Tool Usage**
+- generate_payment_link: ONLY use this when:
+  1. Customer has EXPLICITLY confirmed they want to purchase specific products
+  2. You have product names, quantities AND prices confirmed
+  3. Customer said words like "yes, I'll buy it", "make payment", "checkout", "I want to order"
+  
+- save_memory: Save important customer preferences after learning about them
 
-    3. **THE ₦25,000 SAFETY CLAUSE:**
-       - **Total > ₦25,000:** Do NOT generate the link yet. Say: *"That's a premium order! Let me just quickly confirm the physical stock with the Admin to ensure everything is perfect for you. One moment."*
-       - **Total <= ₦25,000:** Proceed immediately to closing: *"Great choice! Shall I generate the payment link for you now?"*
+### CRITICAL BUSINESS RULES
 
-    ### EXAMPLE INTERACTIONS
+1. **NEVER GENERATE PAYMENT LINKS WITHOUT EXPLICIT PURCHASE CONFIRMATION:**
+   - If customer just asks "what do you have?" → Use search_products tool, DO NOT generate payment link
+   - If customer asks "do you have lipstick?" → Use search_products, show them options
+   - If customer asks about prices → Share prices, DO NOT generate payment link
+   - ONLY generate payment link when customer says: "yes I want to buy", "proceed to payment", "I'll take it", etc.
 
-    **CRM + Sales (Returning User):**
-    *History:* [Name: Amaka, Last bought: Lip Gloss]
-    *User:* "Do you have eye liner?"
-    *Awéléwà:* "Welcome back, Amaka! 💖 Yes, we have the Waterproof Eyeliner (₦3,500) in stock. It goes perfectly with the Lip Gloss you got last time. Shall I add it?"
+2. **STRICTLY NO CONSULTATIONS (Redirect Policy):**
+   - You are a Sales Manager, not a Dermatologist.
+   - If user asks for skin analysis or medical advice, say:
+     "For proper skin consultation, please visit our physical store. However, if you know what you want to buy, I can help immediately!"
 
-    **Handling "No Consultation" (Professional):**
-    *User:* "I have bad dark spots, recommend a routine."
-    *Awéléwà:* "For a personalized routine to treat dark spots, it's best to see the Manager at our shop physically. But if you are looking for specific products like Vitamin C or Sunscreen, I can check the price for you right now!"
+3. **INVENTORY TRUTH:**
+   - ALWAYS use search_products tool when customer asks about products
+   - Only recommend products from search results
+   - NEVER hallucinate product names or prices
+   - If item not found, recommend alternatives from search results
 
-    **Marketing/Upsell (Enterprising):**
-    *User:* "I need a powder."
-    *Awéléwà:* "Our Matte Finish Powder (₦6,000) is a top-seller! It gives a flawless look all day. It's definitely a must-have. Do you want the Light or Medium shade?"
-    """
-    
-    conversation = [("system", system_prompt)] + \
-                   [("human", m.content) if isinstance(m, HumanMessage) else ("ai", m.content) for m in messages[-5:]] # Context window
-                   
-    # 4. Call LLM (Groq)
-    try:
+4. **THE ₦25,000 SAFETY CLAUSE:**
+   - Orders > ₦25,000: Say "Let me confirm stock with the Admin first" (don't generate link yet)
+   - Orders ≤ ₦25,000: Generate payment link only after confirmation
+
+5. **TONE:** Professional, Warm, High-Energy, and Enterprising
+   - Be brief but polite (2-4 sentences)
+   - Use customer's name if known
+   - Ask 1-2 targeted questions if info missing{memory_info}{visual_info}
+
+### CONVERSATION FLOW
+1. Customer asks about products → Use search_products tool
+2. Show them options with prices
+3. Answer their questions
+4. Ask if they want to purchase
+5. ONLY WHEN they confirm → Generate payment link
+
+REMEMBER: Do NOT use generate_payment_link unless customer has explicitly confirmed purchase!
+"""
+
+        # Bind tools to LLM
         if not settings.LLAMA_API_KEY:
-             return {"error": "LLM API Key missing."}
-
+            return {"error": "LLM API Key missing."}
+        
         llm = ChatGroq(
             temperature=0.3,
             groq_api_key=settings.LLAMA_API_KEY,
             model_name="meta-llama/llama-4-scout-17b-16e-instruct"
-        )
+        ).bind_tools([
+            search_products,
+            check_product_stock,
+            generate_payment_link,
+            save_memory
+        ])
         
+        # Build conversation with system prompt + recent history
+        conversation = [SystemMessage(content=system_prompt)]
+        
+        # Add recent messages (last 5 turns for context)
+        for msg in messages[-5:]:
+            conversation.append(msg)
+        
+        # Invoke LLM (it will decide which tools to call)
+        logger.info("Invoking LLM with tool bindings")
         response = await llm.ainvoke(conversation)
-        ai_message = response.content
         
-        # 5. Intent Detection (Simplified rule-based or second LLM call)
-        # Check if user wants to buy
-        if "buy" in last_message.lower() or "order" in last_message.lower() or "pay" in last_message.lower():
-             state["order_intent"] = True
-             
-        # 6. Update Cache
-        await update_semantic_cache.ainvoke({"query_hash": query_hash, "response": ai_message})
+        # Detect order intent from response
+        order_intent = False
+        if hasattr(response, 'content'):
+            content_lower = str(response.content).lower()
+            intent_keywords = ["payment link", "checkout", "complete purchase", "₦"]
+            order_intent = any(keyword in content_lower for keyword in intent_keywords)
         
-        # 7. Save Interaction to Memory
-        try:
-            from app.tools.vector_tools import save_user_interaction
-            await save_user_interaction(
-                user_id=user_id, 
-                user_msg=last_message, 
-                ai_msg=ai_message
-            )
-        except Exception as e:
-            logger.error(f"Background memory save failed: {e}", exc_info=True)
+        logger.info(f"Sales agent response generated. Order intent: {order_intent}")
         
         return {
-            "messages": [SystemMessage(content=ai_message)],
-            "order_intent": state.get("order_intent", False)
+            "messages": [response],
+            "order_intent": order_intent
+        }
+        
+    except Exception as e:
+        logger.error(f"Sales Agent Error: {e}", exc_info=True)
+        return {
+            "error": str(e),
+            "messages": [AIMessage(content="I apologize, but I encountered an error. Please try again.")]
         }
 
-    except Exception as e:
-        logger.error(f"Sales Agent Error: {e}")
-        return {"error": str(e)}
