@@ -18,6 +18,8 @@ async def router_agent_node(state: AgentState):
         last_message = messages[-1]
         sender_id = state.get("user_id", "unknown")
         
+        logger.info(f"Router: Processing message. Type: {type(last_message).__name__}, Total messages: {len(messages)}")
+        
         # 1. Check Admin Whitelist
         is_admin = False
         try:
@@ -46,22 +48,57 @@ async def router_agent_node(state: AgentState):
 
         # Admin commands check (Overrules standard text/image if admin)
         content_text = ""
-        if isinstance(last_message.content, str):
-            content_text = last_message.content
-        elif isinstance(last_message.content, list):
-            # Extract text part
-            for part in last_message.content:
-                 if part.get("type") == "text":
-                     content_text = part.get("text", "")
+        if isinstance(last_message, HumanMessage):
+            logger.info(f"Router: HumanMessage detected. Content type: {type(last_message.content).__name__}")
+            if isinstance(last_message.content, str):
+                content_text = last_message.content
+                logger.info(f"Router: Extracted string content: '{content_text[:50]}'")
+            elif isinstance(last_message.content, list):
+                logger.info(f"Router: Content is list with {len(last_message.content)} items")
+                # Extract text part
+                for part in last_message.content:
+                     if isinstance(part, dict) and part.get("type") == "text":
+                         content_text = part.get("text", "")
+                         logger.info(f"Router: Extracted text from list: '{content_text[:50]}'")
+            else:
+                logger.warning(f"Router: Unexpected content type: {type(last_message.content)}")
+                # Fallback: try to convert to string
+                content_text = str(last_message.content) if last_message.content else ""
+        elif isinstance(last_message, dict):
+            logger.info(f"Router: Message is dict. Keys: {list(last_message.keys())}")
+            content_text = str(last_message.get("content", ""))
+            logger.info(f"Router: Extracted dict content: '{content_text[:50]}'")
+        else:
+            logger.warning(f"Router: Unknown message type: {type(last_message)}")
 
         if is_admin and content_text.strip().startswith("/"):
             query_type = "admin_command"
             state["admin_command"] = content_text.strip()
 
+        # Store the extracted content_text as last_user_message for memory saving
+        # If content_text is empty, try direct extraction as fallback
+        last_user_message = content_text.strip() if content_text else ""
+        
+        # Fallback: if still empty, try to get it directly from the message
+        if not last_user_message and isinstance(last_message, HumanMessage):
+            try:
+                # Try to get content directly
+                if hasattr(last_message, 'content'):
+                    raw_content = last_message.content
+                    if isinstance(raw_content, str) and raw_content:
+                        last_user_message = raw_content.strip()
+                    elif raw_content:
+                        last_user_message = str(raw_content).strip()
+            except Exception as e:
+                logger.warning(f"Router: Fallback extraction failed: {e}")
+        
+        logger.info(f"Router: last_message type={type(last_message).__name__}, content_text='{content_text[:50] if content_text else 'EMPTY'}', last_user_message='{last_user_message[:50] if last_user_message else 'EMPTY'}'")
+
         return {
             "is_admin": is_admin,
             "query_type": query_type,
-            "image_url": image_url
+            "image_url": image_url,
+            "last_user_message": last_user_message
         }
 
     except Exception as e:

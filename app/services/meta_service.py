@@ -57,7 +57,12 @@ class MetaService:
                 if not from_num.startswith("whatsapp:"):
                     from_num = f"whatsapp:{from_num}"
                 
-                to_num = f"whatsapp:{to_phone}" if not to_phone.startswith("whatsapp:") else to_phone
+                # Normalize 'to_phone' to E.164 if it looks like a local Nigerian number
+                clean_to = to_phone.strip()
+                if clean_to.startswith("0") and len(clean_to) == 11 and clean_to.isdigit():
+                    clean_to = "+234" + clean_to[1:]
+                
+                to_num = f"whatsapp:{clean_to}" if not clean_to.startswith("whatsapp:") else clean_to
 
                 message = client.messages.create(
                     body=text,

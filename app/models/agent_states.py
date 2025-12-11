@@ -17,6 +17,7 @@ class AgentState(TypedDict):
     # Memory & context
     user_memory: Optional[Dict]  # From Pinecone
     cached_response: Optional[str]
+    last_user_message: Optional[str]  # Store original user message for memory saving
     
     # Processing
     image_url: Optional[str]

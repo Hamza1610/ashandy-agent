@@ -30,7 +30,7 @@ async def sales_consultant_agent_node(state: AgentState):
         
     # 2. Retrieve Context (User Memory)
     try:
-        user_context = await retrieve_user_memory.ainvoke({"user_id": user_id})
+        user_context = await retrieve_user_memory.ainvoke(user_id)
         
     except Exception as e:
         logger.error(f"Memory retrieval failed: {e}")
@@ -134,13 +134,13 @@ async def sales_consultant_agent_node(state: AgentState):
         # 7. Save Interaction to Memory
         try:
             from app.tools.vector_tools import save_user_interaction
-            await save_user_interaction.ainvoke({
-                "user_id": user_id, 
-                "user_msg": last_message, 
-                "ai_msg": ai_message
-            })
+            await save_user_interaction(
+                user_id=user_id, 
+                user_msg=last_message, 
+                ai_msg=ai_message
+            )
         except Exception as e:
-            logger.error(f"Background memory save failed: {e}")
+            logger.error(f"Background memory save failed: {e}", exc_info=True)
         
         return {
             "messages": [SystemMessage(content=ai_message)],

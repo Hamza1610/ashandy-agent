@@ -7,7 +7,7 @@ from app.agents.visual_search_agent import visual_search_agent_node
 from app.agents.payment_order_agent import payment_order_agent_node
 from app.agents.admin_agent import admin_agent_node
 from app.tools.cache_tools import check_semantic_cache, update_semantic_cache
-from app.tools.vector_tools import retrieve_user_memory
+from app.tools.vector_tools import retrieve_user_memory, save_user_interaction
 from app.tools.sentiment_tool import analyze_sentiment
 from app.tools.db_tools import get_product_details
 from app.services.meta_service import meta_service
@@ -34,22 +34,33 @@ async def safety_log_node(state: AgentState):
 async def cache_check_node(state: AgentState):
     """
     Check Redis semantic cache for the latest user query.
+    Uses last_user_message from state if available (set by router), otherwise extracts from messages.
     """
-    messages = state.get("messages", [])
-    last_user = ""
-    for msg in reversed(messages):
-        if isinstance(msg, HumanMessage):
-            last_user = msg.content
-            break
+    # First try to use the value from router node
+    last_user = state.get("last_user_message", "")
+    
+    # If not found, extract from messages
+    if not last_user:
+        messages = state.get("messages", [])
+        for msg in reversed(messages):
+            if isinstance(msg, HumanMessage):
+                last_user = msg.content
+                break
+            # Also handle dict format
+            if isinstance(msg, dict) and msg.get("type") in ["human", "HumanMessage", "Human"]:
+                last_user = str(msg.get("content", ""))
+                break
+    
     if not last_user:
         return {}
 
+    # Store/update in state for later use in response_node
     query_hash = hashlib.md5(last_user.encode()).hexdigest()
     cached = await check_semantic_cache.ainvoke(query_hash)
     if cached:
         logger.info("Semantic cache hit.")
-        return {"cached_response": cached, "query_hash": query_hash}
-    return {"query_hash": query_hash}
+        return {"cached_response": cached, "query_hash": query_hash, "last_user_message": last_user}
+    return {"query_hash": query_hash, "last_user_message": last_user}
 
 
 async def cache_hit_response_node(state: AgentState):
@@ -93,7 +104,7 @@ async def ai_generation_node(state: AgentState):
         except Exception as e:
             logger.warning(f"Text search failed: {e}")
 
-    system_prompt = f"""You are 'Sabi', a helpful, concise sales assistant for a cosmetics shop.
+    system_prompt = f"""You are 'Awelaea', a helpful, concise sales assistant for a cosmetics shop.
 Objectives:
 - Answer clearly and briefly (2-4 sentences) with actionable next steps.
 - Recommend products with names and prices when relevant.
@@ -233,6 +244,57 @@ async def response_node(state: AgentState):
     elif platform == "instagram":
         send_result = await meta_service.send_instagram_text(user_id, text)
 
+    # --- SAVE MEMORY ---
+    # We save the interaction *after* attempting to send, or even if sent.
+    try:
+        # First, try to use the stored last_user_message from router/cache_check_node
+        last_human = state.get("last_user_message", "")
+        
+        logger.info(f"DEBUG: State keys: {list(state.keys())}")
+        logger.info(f"DEBUG: last_user_message from state: '{last_human[:100] if last_human else 'EMPTY'}'")
+        
+        # If not found in state, try to extract from messages
+        if not last_human:
+            logger.info(f"DEBUG: last_user_message not in state, extracting from messages. Total: {len(messages)}")
+            for idx, m in enumerate(reversed(messages)):
+                logger.debug(f"DEBUG: Message {idx}: type={type(m).__name__}")
+                # Handle LangChain HumanMessage object
+                if isinstance(m, HumanMessage):
+                    last_human = m.content if hasattr(m, 'content') else str(m)
+                    logger.info(f"DEBUG: Found HumanMessage: {last_human[:50]}")
+                    break
+                # Handle Dict format
+                if isinstance(m, dict):
+                    msg_type = m.get("type", "")
+                    content = m.get("content", "")
+                    logger.debug(f"DEBUG: Dict message - type={msg_type}, content={str(content)[:50] if content else 'EMPTY'}")
+                    if msg_type in ["human", "HumanMessage", "Human"] or (content and msg_type not in ["system", "ai", "assistant"]):
+                        last_human = str(content) if content else ""
+                        if last_human:
+                            logger.info(f"DEBUG: Found human from dict: {last_human[:50]}")
+                            break
+        
+        logger.info(f"DEBUG: Final last_human: {last_human[:100] if last_human else 'EMPTY'}")
+        logger.info(f"DEBUG: AI text: {text[:100] if text else 'EMPTY'}")
+        
+        if last_human and text:
+            logger.info(f"Saving interaction memory for {user_id}: user_msg='{last_human[:50]}...', ai_msg='{text[:50]}...'")
+            # Call as normal async function (not a LangChain tool)
+            save_res = await save_user_interaction(
+                user_id=user_id, 
+                user_msg=last_human, 
+                ai_msg=text
+            )
+            logger.info(f"Memory Save Result: {save_res}")
+        else:
+            logger.warning(f"Memory Skipped. Human: {bool(last_human)}, AI: {bool(text)}")
+            if not last_human:
+                logger.warning(f"DEBUG: last_user_message in state: '{state.get('last_user_message', 'NOT FOUND')}'")
+                logger.warning(f"DEBUG: All state keys: {list(state.keys())}")
+            
+    except Exception as e:
+        logger.error(f"Background memory save failed: {e}", exc_info=True)
+
     # Attach send result back into state for upstream visibility
     return {"send_result": send_result}
 
@@ -341,7 +403,6 @@ workflow.add_node("admin_update", admin_update_node)
 # Edges
 workflow.add_edge(START, "router")
 workflow.add_conditional_edges("router", route_after_router)
-<<<<<<< HEAD
 workflow.add_conditional_edges("safety", route_after_safety)
 workflow.add_conditional_edges("cache_check", route_after_cache)
 workflow.add_edge("cache_hit_response", "response")

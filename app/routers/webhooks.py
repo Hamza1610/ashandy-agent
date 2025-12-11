@@ -26,32 +26,44 @@ async def verify_whatsapp_webhook(request: Request):
     return {"status": "ok"}
 
 @router.post("/whatsapp")
-async def receive_whatsapp_webhook(request: Request):
+async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
     """
     Receive WhatsApp messages.
     """
     from app.workflows.main_workflow import app as agent_app
     from langchain_core.messages import HumanMessage
+    from app.services.meta_service import meta_service
 
-    payload = await request.json()
-    logger.info(f"Received WhatsApp webhook: {payload}")
+    # payload is already parsed by Pydantic
+    logger.info(f"Received WhatsApp webhook.")
     
     try:
-        entry = payload.get("entry", [])[0]
-        changes = entry.get("changes", [])[0]
-        value = changes.get("value", {})
-        messages = value.get("messages", [])
+        # Access attributes directly, respecting Pydantic model structure
+        if not payload.entry:
+            return {"status": "no_entry"}
+
+        entry = payload.entry[0]
+        if not entry.changes:
+            return {"status": "no_changes"}
+
+        changes = entry.changes[0]
+        value = changes.value
+        messages = value.messages
 
         if not messages:
             return {"status": "no_messages"}
 
         message = messages[0]
-        wa_id = message.get("from") # The user's phone number
+        wa_id = message.from_ # 'from' is aliased to 'from_' in schema
+        from_phone = wa_id # Ensure we have this variable for later use
         
         # Extract message content
         content = ""
-        msg_type = message.get("type")
+        msg_type = message.type
         
+        user_message_content = ""
+        image_url = None
+
         if msg_type == "text" and message.text:
             user_message_content = message.text.body
         elif msg_type == "image" and message.image:
@@ -61,9 +73,6 @@ async def receive_whatsapp_webhook(request: Request):
             user_message_content = caption # Use caption as text context
             
             # Resolve URL
-            # Note: This URL is authenticated. The Visual Tool needs to handle it.
-            # Ideally we pass headers or download here. 
-            # For checking flows, we pass the URL. 
             fetched_url = await meta_service.get_media_url(media_id)
             if fetched_url:
                 image_url = fetched_url
@@ -80,9 +89,13 @@ async def receive_whatsapp_webhook(request: Request):
             # Also constructing multimodal content block for LangChain purity
             # content = [{"type": "text", "text": user_message_content}, {"type": "image_url", "image_url": {"url": image_url}}]
         
+        logger.info(f"Webhook: Creating HumanMessage with content: '{user_message_content[:100] if user_message_content else 'EMPTY'}'")
+        
         human_msg = HumanMessage(content=user_message_content)
         if image_url:
              human_msg.additional_kwargs["image_url"] = image_url
+        
+        logger.info(f"Webhook: HumanMessage created. Content type: {type(human_msg.content).__name__}, Content: '{str(human_msg.content)[:100] if human_msg.content else 'EMPTY'}'")
         
         input_state = {
             "messages": [human_msg],
@@ -94,7 +107,7 @@ async def receive_whatsapp_webhook(request: Request):
         
         # Invoke Graph
         logger.info(f"Invoking Agent Graph for {from_phone}...")
-        final_state = await graph_app.ainvoke(input_state, config={"configurable": {"thread_id": from_phone}})
+        final_state = await agent_app.ainvoke(input_state, config={"configurable": {"thread_id": from_phone}})
         
         send_result = final_state.get("send_result")
         final_messages = final_state.get("messages", [])
@@ -107,6 +120,9 @@ async def receive_whatsapp_webhook(request: Request):
             "send_result": send_result,
             "last_reply": last_reply
         }
+    except Exception as e:
+        logger.error(f"Error processing WhatsApp webhook: {e}")
+        return {"status": "error"}
 
 # Instagram Webhook
 @router.get("/instagram")
