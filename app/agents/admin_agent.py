@@ -1,4 +1,4 @@
-from app.models.agent_states import AgentState
+from app.state.agent_state import AgentState
 from app.tools.pos_connector_tools import sync_inventory_from_pos
 from app.tools.report_tool import generate_weekly_report
 from langchain_core.messages import SystemMessage

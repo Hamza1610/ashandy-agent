@@ -1,4 +1,4 @@
-from app.models.agent_states import AgentState
+from app.state.agent_state import AgentState
 from app.tools.paystack_tools import generate_payment_link
 from app.tools.db_tools import create_order_record
 from langchain_core.messages import SystemMessage
