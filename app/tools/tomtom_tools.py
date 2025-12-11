@@ -88,7 +88,7 @@ async def calculate_delivery_fee(destination_address: str) -> dict:
         origin_coords = await get_coordinates(origin_address)
         if origin_coords.get("error"):
              # Fallback hardcoded coords for shop if geocode fails (Iyaganku approx)
-             origin_coords = {"lat": 7.3775, "lng": 3.9470} 
+             origin_coords = {"lat": 7.3836892, "lng": 3.8706751} 
         
         # 3. Calculate Route
         o_lat, o_lng = origin_coords["lat"], origin_coords["lng"]
