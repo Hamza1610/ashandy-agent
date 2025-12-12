@@ -48,18 +48,37 @@ async def payment_order_agent_node(state: AgentState):
     print(f">>>   Amount: ₦{total_amount:,.2f}")
     print(f">>>   Reference: {reference}")
     
+    # Store Order Details for later retrieval (Webhook)
+    order_data = state.get("order_data", {})
+    delivery_details = state.get("delivery_details", {})
+    delivery_fee = state.get("delivery_fee", 0)
+    
+    full_details = {
+        "items": order_data.get("items", []),
+        "subtotal": order_data.get("subtotal", amount),
+        "delivery_fee": delivery_fee,
+        "delivery_details": delivery_details,
+        "delivery_type": state.get("delivery_type", "Pickup")
+    }
+    
+    await create_order_record(
+        user_id=user_id,
+        amount=amount + delivery_fee,
+        reference=reference,
+        details=full_details
+    )
+    
     try:
         # Generate actual Paystack link
         from app.tools.payment_tools import generate_payment_link
         link_result = await generate_payment_link.ainvoke({
             "email": email,
-            "amount": total_amount,
+            "amount": amount + delivery_fee, # Total
             "reference": reference
         })
         
-        print(f">>> PAYMENT AGENT: Link generated successfully!")
-        logger.info(f"Payment link generated: {reference} = ₦{total_amount:,.2f}")
-        
+        if "Failed" in link_result:
+            return {"error": "Payment link generation failed."}
         return {
             "paystack_reference": reference,
             "messages": [SystemMessage(content=link_result)]
