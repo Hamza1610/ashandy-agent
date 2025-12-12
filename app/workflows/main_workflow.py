@@ -84,6 +84,10 @@ async def memory_retrieval_node(state: AgentState):
 
 
 
+# Sales Agent is imported at top level
+# from app.agents.sales_consultant_agent import sales_consultant_agent_node
+
+
 
 async def cache_update_node(state: AgentState):
     """

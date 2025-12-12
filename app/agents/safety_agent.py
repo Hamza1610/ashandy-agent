@@ -1,4 +1,4 @@
-from app.models.agent_states import AgentState
+from app.state.agent_state import AgentState
 from app.tools.llama_guard_tool import check_safety
 from langchain_core.messages import SystemMessage
 import logging
