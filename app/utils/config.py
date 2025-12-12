@@ -84,6 +84,16 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "super-secret"
     CORS_ORIGINS: List[str] = ["*"]
     
+    # BUSINESS
+    TRANSPORT_FEE: float = 1500.0  # Delivery fee in Naira
+    
+    # Testing phone numbers (comment out when deploying)
+    TEST_RIDER_PHONE: Optional[str] = "+2349026880099"  # Your test number
+    TEST_MANAGER_PHONE: Optional[str] = "+2349026880099"  # Your test number
+    # Production numbers (uncomment when deploying)
+    # RIDER_PHONE: Optional[str] = None
+    # MANAGER_PHONE: Optional[str] = None
+    
     # ADMIN
     ADMIN_PHONE_NUMBERS: List[str] = []
 

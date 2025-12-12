@@ -94,6 +94,12 @@ async def router_agent_node(state: AgentState):
         
         logger.info(f"Router: last_message type={type(last_message).__name__}, content_text='{content_text[:50] if content_text else 'EMPTY'}', last_user_message='{last_user_message[:50] if last_user_message else 'EMPTY'}'")
 
+        # Log if image detected
+        if image_url:
+            print(f"\n>>> ROUTER: Image detected! query_type={query_type}")
+            print(f">>> ROUTER: Image URL = {image_url[:80]}...")
+            logger.info(f"Image detected for visual search: {image_url}")
+
         return {
             "is_admin": is_admin,
             "query_type": query_type,

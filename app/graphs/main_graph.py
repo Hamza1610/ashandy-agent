@@ -10,6 +10,7 @@ from app.agents.router_agent import router_agent_node
 from app.agents.safety_agent import safety_agent_node
 from app.agents.visual_search_agent import visual_search_agent_node
 from app.agents.payment_order_agent import payment_order_agent_node
+from app.agents.delivery_agent import delivery_agent_node
 from app.agents.admin_agent import admin_agent_node
 from app.agents.sales_consultant_agent import sales_agent_node
 from app.tools.cache_tools import check_semantic_cache, update_semantic_cache
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 # Sales agent tools for ToolNode
 from app.tools.product_tools import search_products, check_product_stock
 from app.tools.simple_payment_tools import request_payment_link  # Simple payment request
+from app.tools.email_tools import request_customer_email  # Email collection
 from app.tools.memory_tools import save_memory
 
 # ========== HELPER NODES ==========
@@ -122,6 +124,16 @@ async def intent_detection_node(state: AgentState):
     CRITICAL: Only check what the USER said, not what the AI responded.
     This prevents false positives when AI mentions payment links.
     """
+    # FIRST: Check if sales agent already set order_intent
+    existing_intent = state.get("order_intent", False)
+    
+    print(f"\n>>> INTENT DETECTION: order_intent from state = {existing_intent}")
+    
+    if existing_intent:
+        print(f">>> INTENT DETECTION: ✓ Preserving order_intent=True")
+        return {"order_intent": True}
+    
+    # FALLBACK: Check user keywords
     messages = state.get("messages", [])
     
     # Get the last USER message only
@@ -142,12 +154,13 @@ async def intent_detection_node(state: AgentState):
         "buy", "order", "pay", "purchase", "checkout",
         "i want to buy", "i'll take it", "i'll buy",
         "proceed", "confirm order", "make payment",
-        "yes please", "yes i want"
+       "yes please", "yes i want"
     ]
     
     # Check if user's message contains purchase intent
     intent = any(keyword in user_text_lower for keyword in purchase_intent_keywords)
     
+    print(f">>> INTENT DETECTION: Keyword check = {intent}")
     logger.info(f"Intent detection: last_user='{last_user[:50]}...' → order_intent={intent}")
     
     return {"order_intent": intent}
@@ -310,8 +323,8 @@ def route_after_intent(state: AgentState):
 
 
 def route_after_payment(state: AgentState):
-    """After payment, wait for webhook."""
-    return "webhook_wait"
+    """After payment link generated, go to delivery."""
+    return "delivery"
 
 
 def route_after_webhook_wait(state: AgentState):
@@ -359,7 +372,7 @@ def should_continue_after_tools(state: AgentState):
 # ========== GRAPH CONSTRUCTION ==========
 
 # Create ToolNode with sales agent tools
-sales_tools = [search_products, check_product_stock, request_payment_link, save_memory]
+sales_tools = [search_products, check_product_stock, request_customer_email, request_payment_link, save_memory]
 tool_node = ToolNode(sales_tools)
 
 workflow = StateGraph(AgentState)
@@ -378,6 +391,7 @@ workflow.add_node("tool_execution", tool_node)  # NEW: Automatic tool execution
 workflow.add_node("cache_update", cache_update_node)
 workflow.add_node("intent", intent_detection_node)
 workflow.add_node("payment", payment_order_agent_node)
+workflow.add_node("delivery", delivery_agent_node)  # NEW: Delivery coordinator
 workflow.add_node("webhook_wait", webhook_wait_node)
 workflow.add_node("sync", sync_node)
 workflow.add_node("notification", notification_node)
@@ -398,6 +412,7 @@ workflow.add_conditional_edges("cache_check", route_after_cache)
 workflow.add_conditional_edges("input_branch", route_input_branch)
 workflow.add_conditional_edges("intent", route_after_intent)
 workflow.add_conditional_edges("payment", route_after_payment)
+workflow.add_edge("delivery", "sentiment")  # NEW: After delivery, analyze sentiment
 workflow.add_conditional_edges("webhook_wait", route_after_webhook_wait)
 workflow.add_conditional_edges("sync", route_after_sync)
 workflow.add_conditional_edges("notification", route_after_notification)
