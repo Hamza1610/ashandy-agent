@@ -6,10 +6,11 @@ from app.agents.safety_agent import safety_agent_node
 from app.agents.visual_search_agent import visual_search_agent_node
 from app.agents.payment_order_agent import payment_order_agent_node
 from app.agents.admin_agent import admin_agent_node
+from app.agents.delivery_agent import delivery_agent_node
+from app.agents.sales_consultant_agent import sales_consultant_agent_node
 from app.tools.cache_tools import check_semantic_cache, update_semantic_cache
 from app.tools.vector_tools import retrieve_user_memory, save_user_interaction
 from app.tools.sentiment_tool import analyze_sentiment
-from app.tools.db_tools import get_product_details
 from app.services.meta_service import meta_service
 from langchain_groq import ChatGroq
 from app.utils.config import settings
@@ -82,63 +83,10 @@ async def memory_retrieval_node(state: AgentState):
     return {"user_memory": user_memory}
 
 
-async def ai_generation_node(state: AgentState):
-    """
-    Generate the assistant response using Groq Llama 4 Scout with
-    memory, visual context, and DB product lookup.
-    """
-    messages = state.get("messages", [])
-    last_message = messages[-1] if messages else HumanMessage(content="")
-    last_text = last_message.content if isinstance(last_message, HumanMessage) else ""
 
-    user_context = state.get("user_memory") or ""
-    visual_context = ""
-    if state.get("visual_matches"):
-        visual_context = f"Visual matches: {state['visual_matches']}"
+# Sales Agent is imported at top level
+# from app.agents.sales_consultant_agent import sales_consultant_agent_node
 
-    text_context = ""
-    if state.get("query_type") == "text" and last_text:
-        try:
-            search_res = await get_product_details.ainvoke(last_text)
-            text_context = f"Database Search Results for '{last_text}':\n{search_res}"
-        except Exception as e:
-            logger.warning(f"Text search failed: {e}")
-
-    system_prompt = f"""You are 'Awelewa', a helpful, concise sales assistant for a cosmetics shop.
-Objectives:
-- Answer clearly and briefly (2-4 sentences) with actionable next steps.
-- Recommend products with names and prices when relevant.
-- If the user shows purchase intent, explicitly ask for confirmation to generate a payment link.
-- If information is missing (shade, size, skin type, budget), ask 1-2 targeted questions.
-- Do not fabricate products or prices; use provided context only. If unsure, say you need to check.
-- Keep tone warm, professional, and efficient. Avoid repetition.
-
-Context you can rely on:
-- User Context: {user_context}
-- Visual Context (if any): {visual_context}
-- Product DB Context (Relevant to query): {text_context}
-
-Formatting:
-- Use short paragraphs or bullet-like sentences separated by periods.
-- Avoid markdown.
-"""
-    conversation = [("system", system_prompt)] + [
-        ("human", m.content) if isinstance(m, HumanMessage) else ("ai", m.content) for m in messages[-5:]
-    ]
-
-    if not settings.LLAMA_API_KEY:
-        return {"error": "LLM API Key missing."}
-
-    llm = ChatGroq(
-        temperature=0.3,
-        groq_api_key=settings.LLAMA_API_KEY,
-        model_name="meta-llama/llama-4-scout-17b-16e-instruct",
-    )
-
-    response = await llm.ainvoke(conversation)
-    ai_message = response.content
-
-    return {"messages": messages + [SystemMessage(content=ai_message)]}
 
 
 async def cache_update_node(state: AgentState):
@@ -209,17 +157,110 @@ async def sentiment_node(state: AgentState):
     """
     Analyze sentiment of the last assistant response and flag for handoff if needed.
     """
+    start_msg = ""
     messages = state.get("messages", [])
-    last_ai = ""
-    for msg in reversed(messages):
-        if isinstance(msg, SystemMessage):
-            last_ai = msg.content
-            break
-    if not last_ai:
+    
+    # We want to analyze the USER's sentiment, not the AI's.
+    # Try to get the last user message from state
+    last_user = state.get("last_user_message")
+    
+    # Fallback: extract from messages if not in state
+    if not last_user:
+        for msg in reversed(messages):
+            if isinstance(msg, HumanMessage):
+                last_user = msg.content
+                break
+                
+    if not last_user:
         return {}
 
-    score = await analyze_sentiment.ainvoke(last_ai)
-    return {"sentiment_score": score, "requires_handoff": score < -0.5}
+    score = await analyze_sentiment.ainvoke(last_user)
+    # Threshold: Lowered to -0.7 because the Agent now handles moderate complaints via tool.
+    # We only want to flag EXTREME anger here as a safety net.
+    is_negative = score < -0.7
+    
+    logger.info(f"Sentiment Analysis: Score={score}, Flagged={is_negative} (Text: '{last_user[:30]}...')")
+    
+    return {"sentiment_score": score, "requires_handoff": is_negative}
+
+
+
+async def handoff_notification_node(state: AgentState):
+    """
+    Notify Admin/Manager of a negative sentiment/complaint.
+    """
+    user_id = state.get("user_id")
+    sentiment_score = state.get("sentiment_score", 0.0)
+    last_user = state.get("last_user_message", "Unknown")
+    
+    logger.warning(f"HANDOFF TRIGGERED for {user_id}. Sentiment: {sentiment_score}")
+    
+    if settings.ADMIN_PHONE_NUMBERS:
+        manager_phone = settings.ADMIN_PHONE_NUMBERS[0]
+        
+        msg = (
+            f"🚨 *EXTREME SENTIMENT ALERT*\n"
+            f"👤 User: {user_id}\n"
+            f"📉 Score: {sentiment_score}\n"
+            f"------------------\n"
+            f"User Said: \"{last_user}\"\n"
+            f"------------------\n"
+            f"⚠️ Bot detected hostility beyond normal complaint handling."
+        )
+        
+        await meta_service.send_whatsapp_text(manager_phone, msg)
+        
+    return {}
+
+
+async def output_safety_node(state: AgentState):
+    """
+    Check the Agent's generated response for safety violates before sending.
+    """
+    messages = state.get("messages", [])
+    if not messages:
+        return {}
+        
+    last_msg = messages[-1]
+    
+    # Only check if the last message is from the AI (SystemMessage in this graph context, or AIMessage)
+    # The SalesAgent returns SystemMessage(content=ai_message)
+    if not isinstance(last_msg, SystemMessage):
+        return {}
+        
+    content = last_msg.content
+    if not content:
+        return {}
+        
+    # Check Safety
+    safety_res = await check_safety.ainvoke(content)
+    
+    if "unsafe" in safety_res.lower():
+        logger.warning(f"OUTPUT SAFETY TRIGGERED. Blocked content: {content[:30]}...")
+        # Replace the unsafe message with a safety fallback
+        safe_replacement = SystemMessage(content="I apologize, but I cannot complete that response. How else can I assist you with Ashandy products?")
+        
+        # We need to replace the last message in the list.
+        # LangGraph 'add_messages' appends, so we might need to be careful.
+        # However, AgentState uses 'add_messages' reducer. 
+        # To OVERWRITE, we might need to assume the graph handles replacement or we add a correction.
+        # A simple append might look weird: "Bad Thing" -> "Sorry".
+        # But since we haven't sent it to the user yet (response_node does the sending), 
+        # we can just modify the state *if* we weren't using a reducer.
+        # With 'add_messages', it's Append Only usually. 
+        # Actually, let's just return a NEW message that apologizes. 
+        # The 'response_node' sends the *last* message. 
+        # So if we append the apology now, the response node will send the apology. 
+        # The user will theoretically see "Bad Thing" then "Sorry" ?? 
+        # NO. The response node sends the LAST message. 
+        # BUT, the `response_node` is what sends to WhatsApp. 
+        # So if we append here, `response_node` sends the Apology. The "Bad Thing" stays in history but isn't sent.
+        # WAIT. `response_node` logic: `text = last.content`. 
+        # So yes, appending works. The "Bad Thing" remains in internal agent memory but is NEVER sent to the user.
+        
+        return {"messages": [safe_replacement]}
+        
+    return {}
 
 
 async def response_node(state: AgentState):
@@ -364,7 +405,15 @@ def route_after_notification(state: AgentState):
 
 
 def route_after_sentiment(state: AgentState):
-    return "response"
+    if state.get("requires_handoff"):
+        return "handoff_notification"
+    if state.get("requires_handoff"):
+        return "handoff_notification"
+    return "output_safety"
+
+
+def route_after_handoff(state: AgentState):
+    return "output_safety"
 
 
 def route_after_admin(state: AgentState):
@@ -386,7 +435,7 @@ workflow.add_node("cache_hit_response", cache_hit_response_node)
 workflow.add_node("input_branch", lambda state: {})  # decision only
 workflow.add_node("memory", memory_retrieval_node)
 workflow.add_node("visual", visual_search_agent_node)
-workflow.add_node("ai", ai_generation_node)
+workflow.add_node("sales_agent", sales_consultant_agent_node)
 workflow.add_node("cache_update", cache_update_node)
 workflow.add_node("intent", intent_detection_node)
 workflow.add_node("payment", payment_order_agent_node)
@@ -394,11 +443,16 @@ workflow.add_node("webhook_wait", webhook_wait_node)
 workflow.add_node("sync", sync_node)
 workflow.add_node("notification", notification_node)
 workflow.add_node("sentiment", sentiment_node)
+workflow.add_node("handoff_notification", handoff_notification_node)
+workflow.add_node("output_safety", output_safety_node)
 workflow.add_node("response", response_node)
 
 # Admin path
 workflow.add_node("admin", admin_agent_node)
 workflow.add_node("admin_update", admin_update_node)
+
+# Delivery
+workflow.add_node("delivery_agent", delivery_agent_node)
 
 # Edges
 workflow.add_edge(START, "router")
@@ -407,22 +461,39 @@ workflow.add_conditional_edges("safety", route_after_safety)
 workflow.add_conditional_edges("cache_check", route_after_cache)
 workflow.add_edge("cache_hit_response", "response")
 workflow.add_conditional_edges("input_branch", route_input_branch)
-workflow.add_edge("visual", "ai")
-workflow.add_edge("memory", "ai")
-workflow.add_conditional_edges("ai", route_after_ai)
+workflow.add_edge("visual", "sales_agent")
+workflow.add_edge("memory", "sales_agent")
+workflow.add_conditional_edges("sales_agent", route_after_ai)
 workflow.add_conditional_edges("cache_update", route_after_cache_update)
-workflow.add_conditional_edges("intent", route_after_intent)
+
+# Modified Intent Routing to include Delivery Check
+def route_after_intent_delivery(state: AgentState):
+    # If order intent is present
+    if state.get("order_intent"):
+        # Check if we need delivery calculation (delivery type is delivery, but fee is not set)
+        if state.get("delivery_type") == "delivery" and state.get("delivery_fee") is None:
+            return "delivery_agent"
+        return "payment"
+    return "sentiment"
+
+workflow.add_conditional_edges("intent", route_after_intent_delivery)
+
+# Delivery Agent Edges
+workflow.add_edge("delivery_agent", "payment") # In this simplified flow, we go to payment. Ideally back to Sales for invoice, but "Payment" can generate link which is the goal.
+
 workflow.add_conditional_edges("payment", route_after_payment)
 workflow.add_conditional_edges("webhook_wait", route_after_webhook_wait)
 workflow.add_conditional_edges("sync", route_after_sync)
 workflow.add_conditional_edges("notification", route_after_notification)
 workflow.add_conditional_edges("sentiment", route_after_sentiment)
+workflow.add_edge("handoff_notification", route_after_handoff)
+workflow.add_edge("output_safety", "response")
 workflow.add_edge("response", END)
 workflow.add_edge("safety_log", END)
 
 # Admin edges
 workflow.add_edge("admin", "admin_update")
-workflow.add_edge("admin_update", "response")
+workflow.add_edge("admin_update", "output_safety")
 
 # Compile
 memory = MemorySaver()

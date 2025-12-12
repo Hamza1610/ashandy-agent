@@ -29,3 +29,5 @@ websockets
 langchain-groq
 twilio
 huggingface_hub
+pytest
+pytest-asyncio
