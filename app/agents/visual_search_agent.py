@@ -1,98 +1,155 @@
 from app.state.agent_state import AgentState
-from app.tools.visual_tools import process_image_for_search, describe_image
+from app.tools.visual_tools import process_image_for_search, detect_product_from_image
 from app.tools.vector_tools import search_visual_products, search_text_products
+from app.services.vector_service import vector_service
+from app.utils.config import settings
 import logging
+import uuid
 from langchain_core.messages import AIMessage
 
 logger = logging.getLogger(__name__)
 
 async def visual_search_agent_node(state: AgentState):
     """
-    Visual Search Agent: Processes product images using dual search strategy.
+    Visual Search Agent: Processes product images using TRI-Strategy.
     
     Strategy:
-        1. DINOv2 Visual Embeddings → Vector similarity search
-        2. Llama Vision Description → Semantic text search
-        3. Combines results for comprehensive product matching
+        1. Visual Similarity (DINOv2) -> Finds visually similar items in DB.
+        2. OCR Text Hunt (Llama Vision) -> Reads text on package -> Searches Text DB.
+        3. Semantic Description (Llama Vision) -> Describes image -> Searches Text DB.
     
     Args:
-        state: Agent state containing image_url or messages with image
+        state: Agent state containing image_url
         
     Returns:
-        Updated state with visual search results and formatted product matches
+        Updated state with 'visual_matches' string combining all findings.
     """
-    print(f"\n>>> VISUAL AGENT: Processing image search")
-    logger.info("Visual Search Agent: Starting image analysis")
+    print(f"\n>>> VISUAL AGENT (Advanced): Processing image search")
+    logger.info("Visual Search Agent: Starting advanced image analysis")
     
     messages = state["messages"]
     last_message = messages[-1]
-    
-    # Get image URL from state (router copied it) or message kwargs
     image_url = state.get("image_url") or last_message.additional_kwargs.get("image_url")
     
     if not image_url:
-        print(">>> VISUAL AGENT ERROR: No image URL found")
-        logger.error("No image URL provided to visual agent")
         return {
             "messages": [AIMessage(content="Please send an image to search for products.")],
             "error": "no_image"
         }
     
-    print(f">>> VISUAL AGENT: Image URL = {image_url[:80]}...")
-    logger.info(f"Processing image: {image_url}")
-    
     try:
-        # Strategy 1:  Visual Similarity (DINOv2 Embedding)
-        print(f">>> VISUAL AGENT: Generating DINOv2 embedding...")
-        visual_results = ""
-        embedding = await process_image_for_search.ainvoke(image_url)
+        # A. Run Detection (Llama Vision) - Parallelizable but sequential for simplicity
+        print(f">>> VISUAL AGENT: analyzing image details (COR/OCR)...")
+        detection_data = await detect_product_from_image.ainvoke(image_url)
         
-        if embedding:
-            print(f">>> VISUAL AGENT: Embedding generated ({len(embedding)} dims), searching products...")
-            visual_results = await search_visual_products.ainvoke(embedding)
-            print(f">>> VISUAL AGENT: Visual search complete")
-        else:
-            print(f">>> VISUAL AGENT WARNING: Embedding generation failed")
-            logger.warning("Visual embedding failed, skipping visual search")
-            
-        # Strategy 2: Semantic Text Search (Llama Vision → Description → Search)
-        print(f">>> VISUAL AGENT: Describing image with Llama Vision...")
-        semantic_results = ""
-        description = await describe_image.ainvoke(image_url)
+        detected_text = detection_data.get("detected_text", "")
+        visual_desc = detection_data.get("visual_description", "")
+        product_type = detection_data.get("product_type", "")
+        confidence = detection_data.get("confidence", 0.0)
         
-        if description and "Error" not in description:
-            print(f">>> VISUAL AGENT: Description = '{description[:100]}'")
-            print(f">>> VISUAL AGENT: Searching products by description...")
-            semantic_results = await search_text_products.ainvoke(description)
-            print(f">>> VISUAL AGENT: Semantic search complete")
-        else:
-            print(f">>> VISUAL AGENT WARNING: Image description failed")
-            logger.warning("Image description failed, skipping semantic search")
+        logger.info(f"Image Analysis: Text='{detected_text}', Type='{product_type}'")
         
-        # Combine results
+        # B. Strategy 1: Visual Similarity (DINOv2)
+        visual_matches = ""
+        embedding = None
+        try:
+            embedding = await process_image_for_search.ainvoke(image_url)
+            if embedding:
+                visual_matches = await search_visual_products.ainvoke(embedding)
+        except Exception as ve:
+            logger.warning(f"Visual strategy failed: {ve}")
+
+        # C. Strategy 2: OCR Text Hunt (The "Investigator")
+        ocr_matches = ""
+        if detected_text and len(detected_text) > 3: # Ignore short noise
+            print(f">>> VISUAL AGENT: Hunting for text '{detected_text}'...")
+            ocr_matches = await search_text_products.ainvoke(detected_text)
+            if "No products found" in ocr_matches:
+                ocr_matches = "" # Clear if noise
+            else:
+                ocr_matches = f"MATCHES FROM PACKAGE TEXT ('{detected_text}'):\n{ocr_matches}"
+
+        # D. Strategy 3: Semantic Description Search (Fallback)
+        # Use the description generated by detect_product_from_image
+        semantic_matches = ""
+        if visual_desc:
+            search_query = f"{product_type} {visual_desc}"
+            semantic_matches = await search_text_products.ainvoke(search_query)
+
+        # Combine
         combined_results = f"""
-Visual Search Results for Uploaded Image:
+Image Analysis Result:
+- Detected Text: {detected_text or 'None'}
+- Type: {product_type}
+- Visuals: {visual_desc}
 
-[Image Analysis]: {description or 'Could not analyze image'}
+{ocr_matches}
 
-{visual_results if visual_results else '(No visual matches found)'}
+{visual_matches if visual_matches else '(No direct visual look-alikes found)'}
 
-{semantic_results if semantic_results else '(No semantic matches found)'}
+Semantic Matches (based on description):
+{semantic_matches}
 """
         
-        print(f">>> VISUAL AGENT: Search complete, returning results")
-        logger.info("Visual search completed successfully")
-        
-        # Return results
+        # Log Auto-Enrichment Opportunity
+        if confidence > 0.95 and detected_text and not visual_matches:
+             # Verify against DB to get EXACT Name
+             # We can't rely on OCR text being perfect, we want the DB canonical name.
+             try:
+                 from sentence_transformers import SentenceTransformer
+                 model = SentenceTransformer('all-MiniLM-L6-v2')
+                 text_vec = model.encode(detected_text).tolist()
+                 
+                 # Check Pinecone for Best Text Match
+                 text_check = await vector_service.query_vectors(
+                    index_name=settings.PINECONE_INDEX_PRODUCTS_TEXT,
+                    vector=text_vec,
+                    top_k=1
+                 )
+                 
+                 if text_check and text_check[0]['score'] > 0.85:
+                     matched_name = text_check[0]['metadata'].get('name')
+                     logger.info(f"💡 AUTO-ENRICHMENT: Auto-learning image for '{matched_name}' (OCR: {detected_text})")
+                     
+                     # UPSERT Logic
+                     if embedding:
+                         record_id = f"user_gen_{uuid.uuid4().hex[:8]}"
+                         metadata = {
+                             "name": matched_name, # Use CANONICAL name
+                             "source": "user_enriched",
+                             "original_ocr": detected_text,
+                             "confidence": confidence,
+                             "description": visual_desc
+                             # Note: We aren't saving the image file to disk here to keep it serverless/clean
+                             # relying on the generic visual embedding.
+                             # If we needed to show this image later, we'd need to save 'image_url' 
+                             # but user URLs expire! For search-only, embedding is enough.
+                         }
+                         
+                         vector_service.upsert_vectors(
+                             index_name=settings.PINECONE_INDEX_PRODUCTS,
+                             vectors=[{
+                                 "id": record_id,
+                                 "values": embedding,
+                                 "metadata": metadata
+                             }]
+                         )
+                         logger.info(f"✅ LEARNED: Saved visual vector for {matched_name}")
+                         
+                         # Add a note to the result so the agent knows it learned something
+                         combined_results += f"\n[System Note]: I just learned what '{matched_name}' looks like from this image!"
+                 
+             except Exception as enrich_err:
+                 logger.error(f"Enrichment failed: {enrich_err}")
+
         return {
             "visual_matches": combined_results,
-            "query_type": "image"  # Confirm type
+            "query_type": "image"
         }
         
     except Exception as e:
-        print(f">>> VISUAL AGENT ERROR: {type(e).__name__}: {str(e)}")
         logger.error(f"Visual Search Error: {e}", exc_info=True)
         return {
-            "messages": [AIMessage(content="Sorry, I had trouble analyzing that image. Please try again or describe what you're looking for.")],
+            "messages": [AIMessage(content="I had trouble seeing that image clearly. Could you type the product name?")],
             "error": str(e)
         }

@@ -13,36 +13,70 @@ logger = logging.getLogger(__name__)
 @tool("search_products_tool")
 async def search_products(query: str) -> str:
     """
-    Search for products using text query.
-    
-    This tool searches the product database using semantic search
-    to find products matching the customer's description.
+    Search for products using text query (searches both POS inventory and Instagram catalog).
     
     Args:
         query: Customer's product search query (e.g., "red lipstick", "dry skin cream")
         
     Returns:
-        Formatted string with product matches including names, prices, and availability
+        Formatted string with product matches including names, prices, and source.
     """
     try:
         print(f"\n>>> TOOL: search_products called with query='{query}'")
         logger.info(f"Product search tool called with query: '{query}'")
         
-        # Use existing POS connector tool
-        results = await search_phppos_products.ainvoke(query)
+        # 1. Generate Query Vector
+        # We need to initialize the model inside the tool or globally.
+        # Ideally globally, but for now importing here ensures no circular deps during startup if not careful.
+        from sentence_transformers import SentenceTransformer
+        from app.services.vector_service import vector_service
+        from app.utils.config import settings
         
-        print(f">>> TOOL: search_products got results: {results[:100] if results else 'NONE'}...")
+        # This might be slow if loaded every time. In prod, load once in app startup.
+        # Checking if model is already loaded in app state would be better, but for simplicity:
+        model = SentenceTransformer('all-MiniLM-L6-v2') 
+        query_vector = model.encode(query).tolist()
         
-        if not results or "No products found" in results:
-            return f"No products found matching '{query}'. Please try different keywords."
+        # 2. Query Pinecone
+        matches = await vector_service.query_vectors(
+            index_name=settings.PINECONE_INDEX_PRODUCTS_TEXT,
+            vector=query_vector,
+            top_k=5
+        )
         
-        return f"Product Search Results:\n{results}"
+        if not matches:
+             # Fallback to direct POS search if vector search fails or returns nothing?
+             logger.info("Vector search returned no results. Trying legacy POS search fallback.")
+             # Use existing POS connector tool
+             results = await search_phppos_products.ainvoke(query)
+             return f"Direct POS Search Results:\n{results}"
+
+        # 3. Format Results
+        result_str = "Found the following products:\n"
+        for i, m in enumerate(matches):
+            meta = m.get("metadata", {})
+            name = meta.get("name", "Unknown")
+            price = meta.get("price", "N/A")
+            desc = meta.get("description", "")[:100] + "..."
+            source = meta.get("source", "unknown").upper()
+            
+            # Format price nicely
+            try:
+                price_float = float(price)
+                price_display = f"₦{price_float:,.2f}"
+            except:
+                price_display = str(price)
+            
+            result_str += f"""
+{i+1}. **{name}**
+   - Price: {price_display}
+   - Source: {source}
+   - Details: {desc}
+"""
+        return result_str
         
     except Exception as e:
         print(f"\n>>> TOOL ERROR in search_products: {type(e).__name__}: {str(e)}")
-        import traceback
-        error_details = traceback.format_exc()
-        print(f">>> TOOL ERROR TRACEBACK:\n{error_details}")
         logger.error(f"Product search failed: {e}", exc_info=True)
         return f"I encountered an error searching for products. Please try again."
 

@@ -13,57 +13,50 @@ import base64
 logger = logging.getLogger(__name__)
 
 
+import json
+import re
+
 @tool
-async def describe_image(image_url: str) -> str:
+async def detect_product_from_image(image_url: str) -> dict:
     """
-    Generate a text description of an image using Llama 4 Maverick Vision via Groq.
+    Analyze product image to extract text, type, and visual details.
     
-    This tool analyzes product images and generates concise descriptions
-    optimized for semantic product search in Pinecone vector store.
-    
-    Args:
-        image_url: Direct URL to the image (must be publicly accessible)
-        
     Returns:
-        Concise product description optimized for search
-        (e.g., "Red matte lipstick with gold packaging", 
-         "Black leather crossbody handbag with chain strap")
-         
-    Examples:
-        >>> await describe_image("https://example.com/lipstick.jpg")
-        "Red matte lipstick with metallic rose gold packaging"
+        dict: {
+            "detected_text": "extracted text on package",
+            "product_type": "lipstick/cream/etc",
+            "visual_description": "detailed description",
+            "confidence": 0.0-1.0
+        }
     """
-    print(f"\n>>> TOOL: describe_image called with URL: {image_url[:50]}...")
-    logger.info(f"Describing image for visual search: {image_url}")
+    print(f"\n>>> TOOL: detect_product_from_image called")
+    logger.info(f"Analyzing product image details: {image_url}")
     
     if not settings.LLAMA_API_KEY:
-        logger.error("LLAMA_API_KEY missing for image description")
-        return "Error: Vision API not configured"
+        return {"error": "API Key missing"}
 
     try:
-        # Llama 4 Vision on Groq - Use updated model name
         llm = ChatGroq(
-            temperature=0.1,  # Low temperature for consistent descriptions
+            temperature=0.1,
             groq_api_key=settings.LLAMA_API_KEY,
-            model_name="meta-llama/llama-4-maverick-17b-128e-instruct"  # Updated model
+            model_name="meta-llama/llama-4-maverick-17b-128e-instruct"
         )
         
-        # Optimized prompt for product search
-        prompt_text = """Describe this product image in a single sentence optimized for search.
+        prompt_text = """Analyze this product image carefully.
         
-Focus on:
-- Product type (lipstick, dress, handbag, etc.)
-- Key visual features (color, style, material)
-- Distinguishing details (patterns, packaging, texture)
+Tasks:
+1. READ any text written on the packaging (Brand, Product Name, Flavor, Shade).
+2. IDENTIFY the product type (e.g., Lipstick, Body Cream, Soap).
+3. DESCRIBE visual features (Color, Texture, Shape).
 
-Output format: "[Product type] [color/style] [key features]"
-Examples:
-- "Red matte lipstick with gold metallic packaging"
-- "Black leather crossbody handbag with chain strap"
-- "Floral print midi dress with puff sleeves"
-
-Be concise and specific."""
-        
+Output strictly valid JSON:
+{
+  "detected_text": "Exact text found on image",
+  "product_type": "Type",
+  "visual_description": "Concise visual description",
+  "confidence": 0.95
+}
+"""
         # Convert image to format Llama Vision can accept
         # For local files, convert to base64 data URL
         if image_url.startswith(('http://', 'https://')):
@@ -71,7 +64,7 @@ Be concise and specific."""
             image_content = {"type": "image_url", "image_url": {"url": image_url}}
         else:
             # Local file - convert to base64
-            print(f">>> TOOL: Converting local file to base64...")
+            print(f">>> TOOL: Converting local file to base64 for detection...")
             if image_url.startswith('file://'):
                 file_path = image_url.replace('file://', '')
             else:
@@ -94,27 +87,41 @@ Be concise and specific."""
             b64 = base64.b64encode(image_bytes).decode('utf-8')
             data_url = f"data:{mime_type};base64,{b64}"
             image_content = {"type": "image_url", "image_url": {"url": data_url}}
-            print(f">>> TOOL: Converted to base64 ({len(b64)} chars)")
-        
-        # Construct multimodal message
+            print(f">>> TOOL: Converted to base64 for detection ({len(b64)} chars)")
+
         msg = HumanMessage(content=[
             {"type": "text", "text": prompt_text},
             image_content
         ])
         
-        print(f">>> TOOL: Calling Llama Vision API...")
         response = await llm.ainvoke([msg])
-        description = response.content.strip()
+        content = response.content
         
-        print(f">>> TOOL: Description generated: '{description[:100]}'")
-        logger.info(f"Image description: '{description}'")
+        # Clean JSON
+        json_str = content.replace("```json", "").replace("```", "").strip()
+        data = json.loads(json_str)
         
-        return description
-        
+        logger.info(f"Detection Result: {data}")
+        return data
+
     except Exception as e:
-        print(f">>> TOOL ERROR: Image description failed - {type(e).__name__}: {str(e)}")
-        logger.error(f"Image description failed: {e}", exc_info=True)
-        return "Error analyzing image"
+        logger.error(f"Detection failed: {e}")
+        return {"error": str(e), "detected_text": "", "visual_description": ""}
+
+@tool
+async def describe_image(image_url: str) -> str:
+    """
+    Legacy wrapper for backward compatibility. Returns string description.
+    """
+    data = await detect_product_from_image.ainvoke(image_url)
+    if not data or "error" in data:
+        return "Could not analyze image."
+        
+    desc = data.get("visual_description", "")
+    text = data.get("detected_text", "")
+    if text:
+        return f"{desc} (Text on package: {text})"
+    return desc
 
 @tool
 async def process_image_for_search(image_url: str) -> list:

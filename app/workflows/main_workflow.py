@@ -351,6 +351,8 @@ async def admin_update_node(state: AgentState):
 # -----------------------------
 
 def route_after_router(state: AgentState):
+    if state.get("query_type") == "ignore":
+        return END
     if state.get("is_admin"):
         return "admin"
     return "safety"

@@ -30,6 +30,14 @@ async def admin_agent_node(state: AgentState):
              date_str = datetime.now().strftime("%Y-%m-%d")
              result = await generate_weekly_report.ainvoke(date_str)
              response_text = result
+
+        elif command.startswith("/sync_instagram"):
+             from app.services.ingestion_service import ingestion_service
+             # Run in background or await? 
+             # Await is safer to return result, but might timeout WhatsApp if slow.
+             # For 20 limit it should be fast enough < 10s usually if no big downloads.
+             result = await ingestion_service.sync_instagram_products(limit=10)
+             response_text = f"🔄 Sync Result: {result}"
              
         return {
             "messages": [SystemMessage(content=response_text)]

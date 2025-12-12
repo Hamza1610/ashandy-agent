@@ -129,4 +129,30 @@ class MetaService:
                 logger.error(f"Failed to get media URL for {media_id}: {e}")
                 return None
 
+    async def get_instagram_posts(self, limit: int = 10):
+        """
+        Fetch recent posts from the Instagram Business Account.
+        Returns list of dicts: {id, caption, media_url, permalink, like_count}
+        """
+        if not self.ig_token or not self.ig_account_id:
+            logger.error("Instagram Token or Account ID missing for post fetch.")
+            return []
+
+        url = f"https://graph.facebook.com/v18.0/{self.ig_account_id}/media"
+        params = {
+            "fields": "id,caption,media_type,media_url,permalink,timestamp,like_count",
+            "limit": limit,
+            "access_token": self.ig_token
+        }
+
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(url, params=params)
+                response.raise_for_status()
+                data = response.json()
+                return data.get("data", [])
+            except Exception as e:
+                logger.error(f"Failed to fetch IG posts: {e}")
+                return []
+
 meta_service = MetaService()

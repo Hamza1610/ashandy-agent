@@ -100,6 +100,49 @@ async def router_agent_node(state: AgentState):
             print(f">>> ROUTER: Image URL = {image_url[:80]}...")
             logger.info(f"Image detected for visual search: {image_url}")
 
+        # -----------------------------
+        # SMART FILTERING (Anti-Spam)
+        # -----------------------------
+        # Prevent bot from replying to low-value messages (Story reactions, 'lol', 'ok', etc.)
+        # Only filter if NO image is present (images are usually intentful)
+        if not image_url and not is_admin and query_type != "admin_command":
+            import re
+            
+            clean_text = content_text.strip().lower()
+            
+            # 1. Check for meaningful alphanumerics (exclude emojis)
+            # Remove non-alphanumeric chars (except basic punctuation used in questions)
+            # If the result is empty or just 1 char, it's likely just emojis ("🔥🔥") or "?"
+            alpha_text = re.sub(r'[^a-z0-9]', '', clean_text)
+            
+            should_ignore = False
+            
+            # Condition A: Mostly Emojis / Symbols
+            if len(alpha_text) == 0 and len(clean_text) > 0:
+                should_ignore = True
+                logger.info(f"Router: Ignoring message (Only Symbols/Emojis): '{clean_text}'")
+
+            # Condition B: Very short, non-question reactions
+            # e.g. "k", "ok", "lol", "nice", "uu"
+            ignore_keywords = {"k", "kk", "ok", "okay", "lol", "lmao", "nice", "cool", "wow", "yep", "yes", "no", "thanks", "thx"}
+            if clean_text in ignore_keywords:
+                should_ignore = True
+                logger.info(f"Router: Ignoring message (Casual Reaction): '{clean_text}'")
+
+            # Condition C: Explicit short filtering
+            if len(clean_text) < 2 and clean_text not in ["y", "n"]: # Allow Y/N for some flows, looking unlikely here though
+                 should_ignore = True
+                 logger.info(f"Router: Ignoring message (Too Short): '{clean_text}'")
+
+            # EXCEPTION: If text looks like a question or has intent keywords, DO NOT IGNORE
+            intent_keywords = {"how", "price", "cost", "much", "buy", "get", "where", "need", "want", "available", "stock", "fake", "original"}
+            if any(k in clean_text for k in intent_keywords) or "?" in content_text:
+                should_ignore = False
+                logger.info("Router: Message kept (Intent/Question detected)")
+
+            if should_ignore:
+                query_type = "ignore"
+
         return {
             "is_admin": is_admin,
             "query_type": query_type,
