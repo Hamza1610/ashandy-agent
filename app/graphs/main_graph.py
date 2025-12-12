@@ -124,6 +124,16 @@ async def intent_detection_node(state: AgentState):
     CRITICAL: Only check what the USER said, not what the AI responded.
     This prevents false positives when AI mentions payment links.
     """
+    # FIRST: Check if sales agent already set order_intent
+    existing_intent = state.get("order_intent", False)
+    
+    print(f"\n>>> INTENT DETECTION: order_intent from state = {existing_intent}")
+    
+    if existing_intent:
+        print(f">>> INTENT DETECTION: ✓ Preserving order_intent=True")
+        return {"order_intent": True}
+    
+    # FALLBACK: Check user keywords
     messages = state.get("messages", [])
     
     # Get the last USER message only
@@ -144,12 +154,13 @@ async def intent_detection_node(state: AgentState):
         "buy", "order", "pay", "purchase", "checkout",
         "i want to buy", "i'll take it", "i'll buy",
         "proceed", "confirm order", "make payment",
-        "yes please", "yes i want"
+       "yes please", "yes i want"
     ]
     
     # Check if user's message contains purchase intent
     intent = any(keyword in user_text_lower for keyword in purchase_intent_keywords)
     
+    print(f">>> INTENT DETECTION: Keyword check = {intent}")
     logger.info(f"Intent detection: last_user='{last_user[:50]}...' → order_intent={intent}")
     
     return {"order_intent": intent}
