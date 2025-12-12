@@ -15,6 +15,12 @@ try:
 except ImportError:
     IMAGE_TEST_AVAILABLE = False
 
+try:
+    from app.routers import payment_webhook, sms_test_router
+    PAYMENT_WEBHOOK_AVAILABLE = True
+except ImportError:
+    PAYMENT_WEBHOOK_AVAILABLE = False
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: could init DB connections, load models, etc.
@@ -53,6 +59,12 @@ if TEST_ROUTER_AVAILABLE:
 if IMAGE_TEST_AVAILABLE:
     app.include_router(image_test_router.router, prefix="/api", tags=["Image Testing"])
     print("✅ Image test endpoints available at /api/test/image/")
+
+if PAYMENT_WEBHOOK_AVAILABLE:
+    app.include_router(payment_webhook.router, prefix="/webhook", tags=["Payment Webhook"])
+    app.include_router(sms_test_router.router, prefix="/api", tags=["SMS Testing"])
+    print("✅ Paystack webhook available at /webhook/paystack/webhook")
+    print("✅ SMS test endpoint available at /api/test/sms")
 
 @app.get("/", tags=["Root"])
 async def root():
