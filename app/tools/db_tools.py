@@ -71,3 +71,24 @@ async def get_order_by_reference(reference: str) -> Dict:
             "details": order.details,
             "status": order.status
         }
+
+@tool
+async def get_active_order_reference(user_id: str) -> str:
+    """
+    Retrieve the reference of the most recent PENDING order for a user.
+    Useful for checking payment status when the user claims they paid.
+    """
+    async with AsyncSessionLocal() as session:
+        # Get the latest 'pending' order
+        query = text("""
+            SELECT reference FROM orders 
+            WHERE user_id = :uid AND status = 'pending' 
+            ORDER BY created_at DESC 
+            LIMIT 1
+        """)
+        result = await session.execute(query, {"uid": user_id})
+        record = result.fetchone()
+        
+        if record:
+            return record.reference
+        return "No pending order found."
