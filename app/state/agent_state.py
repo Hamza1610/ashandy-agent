@@ -82,6 +82,12 @@ class AgentState(TypedDict):
     paystack_reference: Optional[str]
     """Paystack payment reference ID"""
     
+    ordered_items: Optional[List[Dict]]
+    """List of items customer has chosen to purchase"""
+    
+    customer_email: Optional[str]
+    """Customer's email address for payment"""
+    
     # ========== Sentiment & Handoff ==========
     sentiment_score: Optional[float]
     """Sentiment score from analysis (-1.0 to 1.0)"""

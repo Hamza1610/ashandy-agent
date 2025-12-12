@@ -5,6 +5,7 @@ No direct tool invocation - tools are bound to LLM.
 from app.state.agent_state import AgentState
 from app.tools.product_tools import search_products, check_product_stock
 from app.tools.simple_payment_tools import request_payment_link  # Simple tool for sales agent
+from app.tools.email_tools import request_customer_email  # Email collection before payment
 from app.tools.memory_tools import save_memory
 from langchain_groq import ChatGroq
 from app.utils.config import settings
@@ -102,23 +103,30 @@ You have access to these tools:
    - Use customer's name if known
    - Ask 1-2 targeted questions if info missing{memory_info}{visual_info}
 
-### CONVERSATION FLOW
-1. Customer asks about products → Use search_products tool
-2. Show them options with prices
-3. Answer their questions
-4. Ask if they want to purchase
-5. ONLY WHEN they confirm → Use request_payment_link tool with product names and total amount
-6. AFTER requesting payment → Say "I've sent you the payment link! Complete your payment and I'll confirm your order." THEN STOP.
+### PAYMENT & ORDER FLOW (FOLLOW EXACTLY)
 
-### CRITICAL: AFTER PAYMENT LINK
-Once you call request_payment_link:
-- Tell customer the link has been sent
-- Explain they should complete payment
-- DO NOT ask any more questions
-- DO NOT continue selling
-- Your job is DONE - the payment system will take over
+**When customer wants to buy** (says "I want", "I'll take it", "checkout"):
 
-REMEMBER: Do NOT use request_payment_link unless customer has explicitly confirmed purchase!
+**STEP 1: Check for Email**
+- If NO email → Call `request_customer_email` tool
+- Say: "Great! I need your email for payment confirmation. What's your email?"
+- **WAIT** for customer to provide email in next message
+
+**STEP 2: Request Payment (only after email received)**
+- Call `request_payment_link` with:
+  - `product_names`: **ONLY** what customer chose (e.g., "100% MINK LASH 20 PAIRS")
+  - `total_amount`: **ONLY** price of chosen item (e.g., 8000)
+
+**CRITICAL RULES:**
+❌ DO NOT include ALL products mentioned in chat
+❌ DO NOT include products customer only browsed
+✅ ONLY products customer said "I want" or "I'll buy"
+✅ Example: Customer chose mink lash → request payment for ONLY mink lash, not ringlight they asked about earlier
+
+**STEP 3: After Calling request_payment_link**
+- Say: "Perfect! Payment link sent. Complete payment to confirm order."
+- **STOP** - Do not continue conversation
+- Payment system takes over from here
 """
 
         # Bind tools to LLM
@@ -132,6 +140,7 @@ REMEMBER: Do NOT use request_payment_link unless customer has explicitly confirm
         ).bind_tools([
             search_products,
             check_product_stock,
+            request_customer_email,  # Ask for email before payment
             request_payment_link,  # Simple payment request tool
             save_memory
         ])

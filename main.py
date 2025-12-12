@@ -9,6 +9,12 @@ try:
 except ImportError:
     TEST_ROUTER_AVAILABLE = False
 
+try:
+    from app.routers import image_test_router
+    IMAGE_TEST_AVAILABLE = True
+except ImportError:
+    IMAGE_TEST_AVAILABLE = False
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: could init DB connections, load models, etc.
@@ -43,6 +49,10 @@ app.include_router(webhooks.router, prefix="/webhook", tags=["Webhooks"])
 if TEST_ROUTER_AVAILABLE:
     app.include_router(test_graph_router.router, prefix="/api", tags=["Graph Testing"])
     print("✅ Test endpoints available at /api/test/")
+
+if IMAGE_TEST_AVAILABLE:
+    app.include_router(image_test_router.router, prefix="/api", tags=["Image Testing"])
+    print("✅ Image test endpoints available at /api/test/image/")
 
 @app.get("/", tags=["Root"])
 async def root():
