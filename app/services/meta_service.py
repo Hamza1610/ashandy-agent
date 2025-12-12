@@ -16,7 +16,6 @@ class MetaService:
         self.ig_url = "https://graph.facebook.com/v18.0/me/messages"
 
     async def send_whatsapp_text(self, to_phone: str, text: str):
-        print("RESULT FROM AGENT:", text)
         # 1. Try Meta API First
         # if self.wa_token and self.wa_phone_id:
         #     try:
@@ -79,7 +78,6 @@ class MetaService:
         return {"status": "error", "provider": "meta", "error": "Meta failed and Twilio credentials missing."}
 
     async def send_instagram_text(self, to_id: str, text: str):
-        print("RESULT FROM AGENT<instagram>:", text)
         if not self.ig_token:
             logger.error("Instagram Token missing.")
             return {"status": "error", "provider": "instagram", "error": "Missing credentials"}

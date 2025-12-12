@@ -38,8 +38,7 @@ async def visual_search_agent_node(state: AgentState):
         }
     
     try:
-        # A. Run Detection (Llama Vision) - Parallelizable but sequential for simplicity
-        print(f">>> VISUAL AGENT: analyzing image details (COR/OCR)...")
+        # A. Run Detection (Llama Vision)
         detection_data = await detect_product_from_image.ainvoke(image_url)
         
         detected_text = detection_data.get("detected_text", "")
@@ -59,10 +58,10 @@ async def visual_search_agent_node(state: AgentState):
         except Exception as ve:
             logger.warning(f"Visual strategy failed: {ve}")
 
-        # C. Strategy 2: OCR Text Hunt (The "Investigator")
+        # C. Strategy 2: OCR Text Matches
         ocr_matches = ""
         if detected_text and len(detected_text) > 3: # Ignore short noise
-            print(f">>> VISUAL AGENT: Hunting for text '{detected_text}'...")
+            logger.info(f"Visual Search: Text detected '{detected_text}'")
             ocr_matches = await search_text_products.ainvoke(detected_text)
             if "No products found" in ocr_matches:
                 ocr_matches = "" # Clear if noise
@@ -93,8 +92,7 @@ Semantic Matches (based on description):
         
         # Log Auto-Enrichment Opportunity
         if confidence > 0.95 and detected_text and not visual_matches:
-             # Verify against DB to get EXACT Name
-             # We can't rely on OCR text being perfect, we want the DB canonical name.
+             # Verify against DB to get canonical Name for the vector metadata
              try:
                  from sentence_transformers import SentenceTransformer
                  model = SentenceTransformer('all-MiniLM-L6-v2')

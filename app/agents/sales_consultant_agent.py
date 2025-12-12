@@ -99,10 +99,13 @@ You have access to these tools:
 
 **When customer wants to buy** (says "I want", "I'll take it", "checkout"):
 
-**STEP 1: Check for Email**
-- If NO email → Call `request_customer_email` tool
-- Say: "Great! I need your email for payment confirmation. What's your email?"
-- **WAIT** for customer to provide email in next message
+**STEP 1: Check for Email (Smart Logic)**
+- **FIRST:** Check 'CUSTOMER HISTORY' above. Is email already listed?
+  - IF YES: Proceed to Step 2 immediately (use that email).
+  - IF NO: Have you asked for email in this conversation already?
+    - IF YES (and they didn't give it): Use fallback "customer@ashandy.org" and proceed.
+    - IF NO: Ask ONCE: "I need an email for the receipt. If none, just say 'skip'."
+    - If user says "skip", "no email", or provides invalid input: Use "customer@ashandy.org" silently.
 
 **STEP 2: Request Payment (only after email received)**
 - Call `request_payment_link` with:
@@ -143,18 +146,11 @@ You have access to these tools:
         
         logger.info(f"✅ LLM Response: {response.content[:100]}... Tools: {response.tool_calls}")
 
-        # 5. Handle "Active" Tool Calls (Verification/Reporting) instantly? 
-        # In a fully agentic flow, the graph would handle tool execution. 
-        # But 'sales_consultant_agent_node' was originally designed to execute tools internally or return them.
-        # The 'Clean Agent' design usually returns the message and lets a 'ToolsNode' execute.
-        # HOWEVER, our current graph (HEAD) does NOT have a separate ToolsNode for Sales.
-        # It expects the agent to handle everything or return a response.
-        # So we MUST execute tools here manually if we want them to work in *this* graph node.
+        # 5. Execute Tools needed for immediate feedback (Search, Verification)
+        # Tools like 'search_products' and 'verify_payment' are handled here to provide context for the next turn.
+        # 'request_payment_link' is handled by the Payment Agent (next node).
         
-        # WAIT! The original HEAD code executed tools internally. 
-        # If I return just the message, the Graph (HEAD) attempts to 'route_after_ai'.
-        # If I don't execute them, nothing happens.
-        # So I will execute them here to maintain HEAD functionality within Clean Structure.
+        # Execute internal tools if present to simulate ReAct loop within single node
 
         ai_message = response.content
         tool_calls = response.tool_calls
@@ -179,20 +175,12 @@ You have access to these tools:
                     if "user_id" not in args: args["user_id"] = user_id
                     res = await report_incident.ainvoke(args)
                 
-                # If we executed a tool, we should probably append the result and re-invoke?
-                # Or just let the tool call sit there?
-                # HEAD Logic was: Execute -> Append Result -> Re-invoke. (ReAct Loop).
-                # To be true to HEAD functionality, we should do that. 
-                # But simple tools like 'request_payment_link' are handled by Next Node (Payment Agent).
-                
                 if name == "request_payment_link":
-                    # Check Business Rule 4: Safety Clause
-                    # We can let the next node handle it, or check here.
-                    # Payment Agent Node handles the actual link generation.
-                    pass # Intent detection will pick this up.
+                    # Intent detection will route this to Payment Agent node
+                    pass
 
         # 6. Intent Detection Hook
-        # (Preserving HEAD logic for passing data to Payment Node)
+        # Passes data to Payment Node if payment link requested
         order_intent = False
         if tool_calls:
              for tc in tool_calls:

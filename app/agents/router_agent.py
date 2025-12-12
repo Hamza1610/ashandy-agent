@@ -32,8 +32,7 @@ async def router_agent_node(state: AgentState):
         image_url = None
         
         if isinstance(last_message, HumanMessage):
-             # Check for image content in message
-             # Handle standard LangChain multimodal content type (list of dicts)
+             # Check for image content in message (standard LangChain or fallback)
              if isinstance(last_message.content, list):
                  for content_part in last_message.content:
                      if isinstance(content_part, dict) and content_part.get("type") == "image_url":
@@ -41,7 +40,6 @@ async def router_agent_node(state: AgentState):
                          query_type = "image"
                          break
              
-             # Also check additional_kwargs as fallback (webhook might populate this)
              if not image_url and last_message.additional_kwargs.get("image_url"):
                  image_url = last_message.additional_kwargs["image_url"]
                  query_type = "image"
@@ -75,11 +73,9 @@ async def router_agent_node(state: AgentState):
             query_type = "admin_command"
             state["admin_command"] = content_text.strip()
 
-        # Store the extracted content_text as last_user_message for memory saving
-        # If content_text is empty, try direct extraction as fallback
         last_user_message = content_text.strip() if content_text else ""
         
-        # Fallback: if still empty, try to get it directly from the message
+        # Fallback: Extraction directly from message object
         if not last_user_message and isinstance(last_message, HumanMessage):
             try:
                 # Try to get content directly
@@ -103,16 +99,12 @@ async def router_agent_node(state: AgentState):
         # -----------------------------
         # SMART FILTERING (Anti-Spam)
         # -----------------------------
-        # Prevent bot from replying to low-value messages (Story reactions, 'lol', 'ok', etc.)
-        # Only filter if NO image is present (images are usually intentful)
         if not image_url and not is_admin and query_type != "admin_command":
             import re
             
             clean_text = content_text.strip().lower()
             
-            # 1. Check for meaningful alphanumerics (exclude emojis)
-            # Remove non-alphanumeric chars (except basic punctuation used in questions)
-            # If the result is empty or just 1 char, it's likely just emojis ("🔥🔥") or "?"
+            # 1. Filter out messages containing only symbols/emojis
             alpha_text = re.sub(r'[^a-z0-9]', '', clean_text)
             
             should_ignore = False
