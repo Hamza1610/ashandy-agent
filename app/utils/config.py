@@ -58,6 +58,20 @@ class Settings(BaseSettings):
 
     # POS
     POS_CONNECTOR_API_KEY: Optional[str] = None
+    
+    # PINECONE
+    PINECONE_API_KEY: Optional[str] = None
+    PINECONE_ENV: str = "us-west-1-aws"
+    PINECONE_INDEX_PRODUCTS_TEXT: str = "products-text-index"
+    PINECONE_INDEX_PRODUCTS_IMAGE: str = "products-image-index"
+    PINECONE_INDEX_USERS: str = "users-index"
+    
+    # ADMIN
+    ADMIN_PHONE_NUMBERS: List[str] = []
+    
+    # GOOGLE MAPS & DELIVERY
+    TOMTOM_API_KEY: Optional[str] = None
+    SHOP_ADDRESS: str = "Ashandy Home of Cosmetics, Shop 9 &10, Divine Favor plaza, Railway Shed, Iyaganku, Dugbe Rd, Ibadan South West 200263, Oyo"
     PHPPOS_BASE_URL: Optional[str] = "https://ashandy.storeapp.com.ng/phppos/index.php/api/v1"
 
     # AI

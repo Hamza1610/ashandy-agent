@@ -58,8 +58,7 @@ async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
             return {"status": "no_messages"}
 
         message = messages[0]
-        wa_id = message.from_ # 'from' is aliased to 'from_' in schema
-        from_phone = wa_id # Ensure we have this variable for later use
+        from_phone = message.get("from") # The user's phone number
         
         # Extract message content
         content = ""
@@ -67,24 +66,15 @@ async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
         
         user_message_content = ""
         image_url = None
-
-        logger.info(f"📥 Webhook: message type='{msg_type}'")
-        
-        # Handle text messages - check for text attribute even if type is None
-        if hasattr(message, 'text') and message.text:
-            try:
-                user_message_content = message.text.body
-                logger.info(f"✅ Extracted text: '{user_message_content}'")
-            except AttributeError:
-                # Fallback if text.body doesn't exist
-                user_message_content = str(message.text)
-                logger.info(f"✅ Extracted text (fallback): '{user_message_content}'")
-        elif msg_type == "image" and hasattr(message, 'image') and message.image:
+        if msg_type == "text":
+            text_obj = message.get("text", {})
+            user_message_content = text_obj.get("body", "")
+        elif msg_type == "image":
             # Handle Image
-            media_id = message.image.id
-            caption = message.image.caption or ""
-            user_message_content = caption
-            logger.info(f"📸 Image message. Caption: '{caption}'")
+            img_obj = message.get("image", {})
+            media_id = img_obj.get("id")
+            caption = img_obj.get("caption", "")
+            user_message_content = caption # Use caption as text context
             
             # Resolve URL
             fetched_url = await meta_service.get_media_url(media_id)
@@ -219,9 +209,10 @@ async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
             "send_result": send_result,
             "last_reply": last_reply
         }
+            
     except Exception as e:
-        logger.error(f"Error processing WhatsApp webhook: {e}")
-        return {"status": "error"}
+        logger.error(f"WhatsApp processing error: {e}")
+        return {"status": "error", "message": str(e)}
 
 # Instagram Webhook
 @router.get("/instagram")
@@ -333,6 +324,80 @@ async def receive_instagram_webhook(payload: InstagramWebhookPayload):
 # Paystack Webhook
 @router.post("/paystack")
 async def receive_paystack_webhook(request: Request):
-    # Verify signature
-    # Process payment success
-    return {"status": "received"}
+    """
+    Handle Paystack Webhooks (e.g., charge.success).
+    """
+    from app.services.meta_service import meta_service
+    from app.utils.config import settings
+    from app.tools.db_tools import get_order_by_reference
+
+    try:
+        payload = await request.json()
+        event = payload.get("event")
+        data = payload.get("data", {})
+        
+        logger.info(f"Paystack Webhook Event: {event}")
+        
+        if event == "charge.success":
+            reference = data.get("reference")
+            amount_kobo = data.get("amount", 0)
+            amount_naira = amount_kobo / 100
+            customer_email = data.get("customer", {}).get("email", "N/A")
+            
+            # Notify Admin
+            if settings.ADMIN_PHONE_NUMBERS:
+                manager_phone = settings.ADMIN_PHONE_NUMBERS[0]
+                
+                # Fetch full details from DB
+                try:
+                    # Using tool invocation
+                    order = await get_order_by_reference.ainvoke(reference)
+                except Exception as db_e:
+                    logger.error(f"Failed to fetch order: {db_e}")
+                    order = {}
+
+                if not isinstance(order, dict):
+                     # Fallback if tool returns string error
+                     order = {}
+                
+                details = order.get("details", {})
+                items = details.get("items", [])
+                subtotal = details.get("subtotal", 0)
+                fee = details.get("delivery_fee", 0)
+                delivery_info = details.get("delivery_details", {})
+                
+                # Build Invoice
+                items_str = ""
+                for item in items:
+                    i_name = item.get("name", "Item")
+                    i_qty = item.get("quantity", 1)
+                    i_price = item.get("price", 0)
+                    items_str += f"- {i_name} (x{i_qty}): ₦{i_price:,.2f}\n"
+                
+                if isinstance(delivery_info, dict):
+                     addr_str = f"{delivery_info.get('address', '')}, {delivery_info.get('city', '')}"
+                else:
+                     addr_str = str(delivery_info)
+
+                msg = (
+                    f"✅ *PAYMENT CONFIRMED*\n"
+                    f"🧾 *Ref:* {reference}\n"
+                    f"------------------------------\n"
+                    f"*Items:*\n{items_str}"
+                    f"------------------------------\n"
+                    f"🛍️ *Subtotal:* ₦{subtotal:,.2f}\n"
+                    f"🚚 *Delivery Fee:* ₦{fee:,.2f}\n"
+                    f"💰 *TOTAL PAID:* ₦{amount_naira:,.2f}\n"
+                    f"------------------------------\n"
+                    f"📦 *Delivery To:* {addr_str}\n"
+                    f"📧 *Cust Email:* {customer_email}"
+                )
+                
+                await meta_service.send_whatsapp_text(manager_phone, msg)
+                logger.info(f"Admin notified of payment: {reference}")
+                
+        return {"status": "processed"}
+        
+    except Exception as e:
+        logger.error(f"Paystack Webhook Error: {e}")
+        return {"status": "error"}
