@@ -30,44 +30,64 @@ async def payment_order_agent_node(state: AgentState):
     print(f"\n>>> PAYMENT AGENT: Processing order for user {state.get('user_id')}")
     logger.info(f"Payment Agent: Starting for {state.get('user_id')}")
     
-    user_id = state.get("user_id")
     messages = state.get("messages", [])
+    user_id = state.get("user_id", "unknown")
     
-    # Step 1: Extract order items from conversation
-    print(f">>> PAYMENT AGENT: Extracting order items from conversation...")
-    order_items = extract_order_items(messages)
+    print(f">>> PAYMENT AGENT: Processing order for user {user_id}")
     
-    if not order_items:
-        print(f">>> PAYMENT AGENT WARNING: No items found in conversation")
-        logger.warning("No order items extracted from conversation")
-        
-        # Fallback: Try to extract from request_payment_link tool call
-        for msg in reversed(messages):
-            if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                for tool_call in msg.tool_calls:
-                    tool_name = tool_call.get('name') if isinstance(tool_call, dict) else getattr(tool_call, 'name', '')
-                    if 'payment_link' in tool_name.lower():
-                        args = tool_call.get('args', {}) if isinstance(tool_call, dict) else getattr(tool_call, 'args', {})
-                        product_names = args.get('product_names', 'Unknown Product')
-                        total_from_tool = float(args.get('total_amount', 0))
+    # Step 1: Extract order details from sales agent's tool call
+    order_items = []
+    product_names = None
+    total_amount_from_tool = None
+    
+    # Find the request_payment_link tool call in messages
+    for msg in reversed(messages):
+        if isinstance(msg, AIMessage) and hasattr(msg, 'tool_calls') and msg.tool_calls:
+            for tool_call in msg.tool_calls:
+                if tool_call.get('name') == 'request_payment_link':
+                    # Extract arguments from tool call
+                    args = tool_call.get('args', {})
+                    product_names = args.get('product_names', '')
+                    total_amount_from_tool = args.get('total_amount', 0)
+                    
+                    print(f">>> PAYMENT AGENT: Found tool call args:")
+                    print(f">>>   product_names: {product_names}")
+                    print(f">>>   total_amount: ₦{total_amount_from_tool:,.2f}")
+                    
+                    if product_names and total_amount_from_tool:
+                        # Parse items from tool call
+                        # Format: "Product 1, Product 2" or single product
+                        item_names = [name.strip() for name in product_names.split(',')]
                         
-                        if total_from_tool > 0:
+                        # If single item, use full amount
+                        if len(item_names) == 1:
                             order_items = [{
                                 "name": product_names,
-                                "price": total_from_tool,
+                                "price": total_amount_from_tool,
                                 "quantity": 1
                             }]
-                            print(f">>> PAYMENT AGENT: Using fallback from tool call: {product_names} @ ₦{total_from_tool:,.0f}")
+                        else:
+                            # Multiple items - split cost evenly (or use item prices if available)
+                            price_per_item = total_amount_from_tool / len(item_names)
+                            order_items = [
+                                {"name": name, "price": price_per_item, "quantity": 1}
+                                for name in item_names
+                            ]
+                        
+                        print(f">>> PAYMENT AGENT: ✓ Extracted {len(order_items)} items from tool call")
                         break
+            if order_items:
+                break
     
+    # If no tool call found, ask sales agent for clarification
     if not order_items:
-        # Ultimate fallback
-        order_items = [{
-            "name": "Beauty Products",
-            "price": 5000.0,
-            "quantity": 1
-        }]
-        print(f">>> PAYMENT AGENT: Using default fallback order")
+        print(f">>> PAYMENT AGENT ERROR: No order items from tool call")
+        return {
+            "messages": [AIMessage(
+                content="I need to know what products you want to purchase. "
+                       "Please tell me which items you'd like to buy."
+            )]
+        }
     
     # Step 2: Calculate totals
     transport_fee = getattr(settings, 'TRANSPORT_FEE', 500.0)
