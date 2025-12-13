@@ -1,4 +1,4 @@
-from app.models.agent_states import AgentState
+from app.state.agent_state import AgentState
 from app.tools.product_tools import search_products, check_product_stock
 from app.tools.vector_tools import save_user_interaction, search_text_products, retrieve_user_memory
 from app.tools.visual_tools import process_image_for_search, detect_product_from_image
@@ -12,33 +12,29 @@ logger = logging.getLogger(__name__)
 async def sales_worker_node(state: AgentState):
     """
     Sales Worker: The Execution Arm.
-    
-    Responsibilities:
-    1. Executing specific tasks found in 'current_task'.
-    2. Using tools (Search, Stock Check, Visual Search) to get results.
-    3. Generating friendly responses based on results.
-    
-    Inputs: 
-    - state['plan'][state['current_step_index']]
-    
-    Outputs:
-    - worker_result: Result of the action.
     """
     try:
         user_id = state.get("user_id")
         messages = state.get("messages", [])
         
-        # Get Current Task
+        # --- PUB/SUB TASK RETRIEVAL ---
         plan = state.get("plan", [])
-        idx = state.get("current_step_index", 0)
+        task_statuses = state.get("task_statuses", {})
         
-        if idx >= len(plan):
-            return {"worker_result": "No more tasks."}
+        # Find My Task (Worker = sales_worker AND Status = in_progress)
+        current_step = None
+        for step in plan:
+            if step.get("worker") == "sales_worker" and task_statuses.get(step["id"]) == "in_progress":
+                current_step = step
+                break
+        
+        if not current_step:
+            return {"worker_result": "No active task for sales_worker."}
             
-        current_step = plan[idx]
         task_desc = current_step.get("task", "")
+        task_id = current_step.get("id")
         
-        logger.info(f"👷 SALES WORKER: Executing task '{task_desc}'")
+        logger.info(f"👷 SALES WORKER: Executing '{task_desc}' (ID: {task_id})")
 
         # Visual Context Handling
         visual_info_block = ""
@@ -144,7 +140,7 @@ If you simply reply, that is the result.
                     final_result += f"\n\n{tool_output}"
         
         return {
-            "worker_result": final_result,
+            "worker_outputs": {task_id: final_result},
             "messages": [AIMessage(content=final_result)]
             # We do NOT increment step index here. The Planner does that on return.
         }

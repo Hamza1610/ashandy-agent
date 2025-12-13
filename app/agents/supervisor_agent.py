@@ -114,3 +114,47 @@ async def supervisor_agent_node(state: AgentState):
     # -----------------------------
     logger.info("Supervisor: Input Safe. Passing to Planner.")
     return {"supervisor_verdict": "safe"}
+
+async def output_supervisor_node(state: AgentState):
+    """
+    Output Supervisor: Final Gatekeeper.
+    
+    Responsibilities:
+    1. Check Final AI Response for Safety and Policy Compliance.
+    2. Ensure no 'trace' or debug info leaked.
+    """
+    messages = state.get("messages", [])
+    if not messages:
+        return {"supervisor_output_verdict": "safe"}
+        
+    last_message = messages[-1]
+    
+    # Only check if it's an AI message
+    if not isinstance(last_message, AIMessage):
+         return {"supervisor_output_verdict": "safe"}
+         
+    content = last_message.content
+    
+    # 1. Regex Checks (Anti-Leak)
+    if "Traceback" in content or "Error:" in content:
+        # Allow "Error:" if it's a polite user message, but block stack traces
+        if "File \"" in content and "line" in content:
+             logger.warning("Output Supervisor: Blocked stack trace leak.")
+             return {
+                 "supervisor_output_verdict": "block",
+                 "messages": [AIMessage(content="I encountered a technical issue. Please try again.")]
+             }
+
+    # 2. Safety Check (Llama Guard) - Reuse input check logic/tool
+    # Skip for short functional replies to save latency
+    if len(content) > 10:
+        safety_res = await check_safety.ainvoke(content)
+        if safety_res.lower().startswith("unsafe"):
+            logger.warning(f"Output Supervisor: Unsafe output detected: {safety_res}")
+            return {
+                "supervisor_output_verdict": "block",
+                "messages": [AIMessage(content="My response was flagged by safety guidelines. I cannot send it.")]
+            }
+            
+    logger.info("Output Supervisor: Response Safe.")
+    return {"supervisor_output_verdict": "safe"}

@@ -9,24 +9,32 @@ logger = logging.getLogger(__name__)
 
 async def admin_worker_node(state: AgentState):
     """
-    Admin Worker:Executes Administrative, Inventory, and Reporting Tasks.
+    Admin Worker: Executes Administrative, Inventory, and Reporting Tasks.
     
     Inputs: 
-    - state['plan'][state['current_step_index']]
+    - state['plan'] + state['task_statuses']
     
     Outputs:
     - worker_result
     """
+    # --- PUB/SUB TASK RETRIEVAL ---
     plan = state.get("plan", [])
-    idx = state.get("current_step_index", 0)
+    task_statuses = state.get("task_statuses", {})
     
-    if idx >= len(plan):
-        return {"worker_result": "No task."}
+    # Find My Task
+    current_step = None
+    for step in plan:
+        if step.get("worker") == "admin_worker" and task_statuses.get(step["id"]) == "in_progress":
+            current_step = step
+            break
+    
+    if not current_step:
+        return {"worker_result": "No active task."}
         
-    current_step = plan[idx]
     task_desc = current_step.get("task", "").lower()
+    task_id = current_step.get("id")
     
-    logger.info(f"🛡️ ADMIN WORKER: Processing '{task_desc}'")
+    logger.info(f"🛡️ ADMIN WORKER: Processing '{task_desc}' (ID: {task_id})")
     
     response_text = "Task completed."
     
@@ -132,7 +140,7 @@ async def admin_worker_node(state: AgentState):
              
         from langchain_core.messages import AIMessage
         return {
-            "worker_result": response_text,
+            "worker_outputs": {task_id: response_text},
             "messages": [AIMessage(content=response_text)]
         }
         
@@ -142,3 +150,46 @@ async def admin_worker_node(state: AgentState):
             "worker_result": f"Error: {str(e)}",
             "messages": [AIMessage(content=f"Admin Error: {str(e)}")]
         }
+
+async def admin_email_alert_node(state: AgentState):
+    """
+    Escalation Handler: Sends Email to Admin + Apology to User.
+    Triggered when a task fails max retries.
+    """
+    error_msg = state.get("error", "Unknown system error")
+    user_id = state.get("user_id")
+    
+    # 1. User Message (Graceful)
+    user_reply = "Sorry, I couldn't process your request completely. Please try again or contact support."
+    
+    # 2. Admin Email (Implementation)
+    if settings.SMTP_SERVER and settings.SMTP_USERNAME and settings.SMTP_PASSWORD and settings.ADMIN_EMAIL:
+        try:
+            import aiosmtplib
+            from email.message import EmailMessage
+            
+            msg = EmailMessage()
+            msg.set_content(f"User ID: {user_id}\nError: {error_msg}\n\nPlease check the logs and database for details.")
+            msg['Subject'] = f"🚨 ASHANDY ALERT: Agent Escalation (User {user_id})"
+            msg['From'] = settings.SMTP_USERNAME
+            msg['To'] = settings.ADMIN_EMAIL
+            
+            await aiosmtplib.send(
+                msg,
+                hostname=settings.SMTP_SERVER,
+                port=settings.SMTP_PORT,
+                start_tls=True,
+                username=settings.SMTP_USERNAME,
+                password=settings.SMTP_PASSWORD
+            )
+            logger.info(f"Escalation email sent to {settings.ADMIN_EMAIL}")
+        except Exception as e:
+            logger.error(f"Failed to send escalation email: {e}")
+    else:
+        logger.warning("SMTP not configured. Skipping email alert.")
+        
+    logger.critical(f"🚨 ADMIN ALERT: Escalation triggered for User {user_id}. Reason: {error_msg}")
+    
+    return {
+        "messages": [AIMessage(content=user_reply)]
+    }

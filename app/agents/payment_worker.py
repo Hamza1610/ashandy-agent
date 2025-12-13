@@ -1,102 +1,112 @@
 from app.state.agent_state import AgentState
 from app.tools.payment_tools import generate_payment_link
 from app.tools.db_tools import create_order_record
+from app.tools.tomtom_tools import calculate_delivery_fee
+from langchain_groq import ChatGroq
+from langchain_core.messages import SystemMessage, AIMessage
+from app.utils.config import settings
 import logging
-import uuid
-
+import json
 
 logger = logging.getLogger(__name__)
 
 async def payment_worker_node(state: AgentState):
     """
-    Payment Worker: Generates Payment Links.
+    Payment Worker: Generates Payment Links & Calculates Delivery.
     
-    Responsibilities:
-    1. Validates Email (passed in task or state).
-    2. Calculates Total.
-    3. Generates Link.
-    
-    Refactor Note: Logic simplified to trust the Planner's data extraction.
+    Architecture:
+    - Model: Llama 3.1 8B Instant (Fast & Cheap)
+    - Pattern: ReAct / Tool Calling
     """
-    user_id = state.get("user_id")
-    plan = state.get("plan", [])
-    idx = state.get("current_step_index", 0)
-    current_step = plan[idx] if idx < len(plan) else {}
-    
-    # Task Context
-    task_desc = current_step.get("task", "").lower()
-    total_amount = 0.0
-    
-    # Try to get total from state order_data
-    order_data = state.get("order_data", {})
-    if order_data and "total" in order_data:
-        total_amount = float(order_data["total"])
-    
-    # Task Dispatch
-    if "delivery" in task_desc:
-        from app.tools.tomtom_tools import calculate_delivery_fee
-        
-        # Extract location more robustly or pass full desc
-        location = task_desc.replace("calculate delivery", "").strip()
-        if not location:
-             # Try to get address from state?
-             location = "Ibadan" # Fallback or error
-        
-        # Call MCP Tool
-        # Result is a dict wrapper: {"formatted_response": "..."} or {"error": "..."}
-        tool_res = await calculate_delivery_fee.ainvoke(location)
-        
-        if "formatted_response" in tool_res:
-            # Assuming formatted_response contains the fee, e.g., "Delivery fee: 1500"
-            # We need to parse the fee from the string. This is a simplification.
-            # A more robust tool would return structured data like {"fee": 1500}.
-            try:
-                fee_str = tool_res["formatted_response"].replace("Delivery fee: ", "").replace(",", "").strip()
-                fee = float(fee_str)
-            except ValueError:
-                logger.error(f"Could not parse delivery fee from: {tool_res['formatted_response']}")
-                return {"worker_result": f"Delivery Check Failed: Could not parse fee from tool response."}
-
-            final_total = total_amount + fee
-            response = f"Delivery to {location} is ₦{fee:,.0f}. Total is ₦{final_total:,.0f}"
-            return {"worker_result": response, "messages": [AIMessage(content=response)]}
-        else:
-             return {"worker_result": f"Delivery Check Failed: {tool_res.get('error')}"}
-
-    # 1. Get Email
-    customer_email = state.get("user_email") or "customer@ashandy.org" # Fallback if not found
-    
-    # 2. Get Amount & Items (Simplified extraction from order_data or task)
-    total_amount = 5000.0 # Default fallback
-    
-    # Check if Planner passed order details in the 'task' description or state?
-    # In a perfect world, Planner populates `state['order_data']` before calling this.
-    # Let's assume order_data is the source of truth if present.
-    order_data = state.get("order_data", {})
-    if order_data and "total" in order_data:
-        total_amount = float(order_data["total"])
-    
-    # 3. Generate Reference
-    reference = f"ORD-{uuid.uuid4().hex[:8].upper()}"
-    
     try:
-        # Create Record
-        await create_order_record.ainvoke({
-            "user_id": user_id,
-            "amount": total_amount,
-            "reference": reference,
-            "details": {"source": "whatsapp_bot", "email": customer_email}
-        })
+        # 1. Pub/Sub Task Retrieval
+        plan = state.get("plan", [])
+        task_statuses = state.get("task_statuses", {})
         
-        # Generate Link
-        link_result = await generate_payment_link.ainvoke({
-            "email": customer_email,
-            "amount": total_amount,
-            "reference": reference
-        })
+        # Find the task assigned to ME that is IN_PROGRESS
+        my_task = None
+        for step in plan:
+            if step.get("worker") == "payment_worker" and task_statuses.get(step["id"]) == "in_progress":
+                my_task = step
+                break
         
-        return {"worker_result": f"Payment Link generated: {link_result} (Ref: {reference})"}
+        if not my_task:
+            return {"worker_result": "No active task found for payment_worker."}
+            
+        task_desc = my_task.get("task", "")
+        logger.info(f"💳 PAYMENT WORKER: Executing '{task_desc}'")
+
+        # 2. Context Extraction (Reviewer Feedback Loop)
+        retry_count = state.get("retry_counts", {}).get(my_task["id"], 0)
+        critique = state.get("reviewer_critique", "")
         
+        context_str = ""
+        if retry_count > 0 and critique:
+            context_str = f"⚠️ PREVIOUS ATTEMPT REJECTED. Fix this: {critique}"
+
+        # 3. Setup Tools & Model
+        tools = [calculate_delivery_fee, generate_payment_link, create_order_record]
+        
+        llm = ChatGroq(
+            temperature=0.0,
+            groq_api_key=settings.LLAMA_API_KEY,
+            model_name="llama-3.1-8b-instant"
+        ).bind_tools(tools)
+        
+        # 4. Prompt Engineering (Robust System Prompt)
+        system_prompt = f"""You are the **Payment & Logistics Manager** for Ashandy Cosmetics.
+
+**Your Goal:** Execute the assigned task precisely using the available tools.
+
+**Tools:**
+1. `calculate_delivery_fee(location)`: Use exactly the location provided.
+2. `create_order_record(user_id, amount, reference, details)`: Call this BEFORE generating a link.
+3. `generate_payment_link(email, amount, reference)`: Call this LAST.
+
+**Current Task:** "{task_desc}"
+{context_str}
+
+**Context:**
+User ID: {state.get('user_id')}
+User Email: {state.get('customer_email', 'unknown')}
+Order Data: {state.get('order_data', {})}
+
+**Rules:**
+- If checking delivery, just return the fee.
+- If generating link, YOU MUST create the order record first. 
+- Return a clear, human-readable confirmation string as your final answer.
+"""
+
+        messages = [SystemMessage(content=system_prompt)]
+        
+        # 5. Execution Loop (Simple Tool Call)
+        response = await llm.ainvoke(messages)
+        final_output = response.content or ""
+        
+        if response.tool_calls:
+            for tc in response.tool_calls:
+                name = tc["name"]
+                args = tc["args"]
+                logger.info(f"Payment Worker calling {name} with {args}")
+                
+                # Manual Tool Execution Map
+                tool_res = ""
+                if name == "calculate_delivery_fee":
+                    tool_res = await calculate_delivery_fee.ainvoke(args)
+                elif name == "generate_payment_link":
+                    tool_res = await generate_payment_link.ainvoke(args)
+                elif name == "create_order_record":
+                    tool_res = await create_order_record.ainvoke(args)
+                
+                # Append result to output
+                final_output += f"\nResult of {name}: {str(tool_res)}"
+                
+        # 6. Return Result
+        return {
+            "worker_outputs": {my_task["id"]: final_output},
+            "messages": [AIMessage(content=final_output)]
+        }
+
     except Exception as e:
-        logger.error(f"Payment Worker Error: {e}")
-        return {"worker_result": f"Error generating link: {str(e)}"}
+        logger.error(f"Payment Worker Error: {e}", exc_info=True)
+        return {"worker_result": f"Error: {str(e)}"}

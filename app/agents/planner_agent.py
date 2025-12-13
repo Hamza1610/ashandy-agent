@@ -38,56 +38,65 @@ async def planner_agent_node(state: AgentState):
     system_prompt = """You are the **Main Planner** for Ashandy Cosmetics AI 'Awelewa'.
     
 **Your Job:**
-Analyze the user's message and create a step-by-step Execution Plan.
+Analyze the user's message and create a **Dependency-Aware Execution Plan**.
+We use a **Pub/Sub Architecture**: You publish tasks, and Workers pick them up based on dependencies.
 
 **Available Workers:**
-1. `sales_worker`: Handles product search, explanation, visual analysis, and general chat.
-2. `admin_worker`: Handles '/commands' (sync, report, stock), stock queries, and incident reporting.
-3. `payment_worker`: Generates payment links and collects emails.
-
-**Business Rules (CRITICAL):**
-1. **Approval Rule:** If user wants to buy items with Total Value > ₦25,000 -> Assign `request_approval` task to `admin_worker`.
-2. **Visual Rule:** If message has an image -> Assign `analyze_image` task to `sales_worker` FIRST.
-3. **Delivery Rule:** If user is buying -> Assign `calculate_delivery` task to `payment_worker` BEFORE `generate_link`.
-4. **Context Rule:** If user references past events ("Remember what I said") -> Assign `retrieve_memory` task to `sales_worker`.
-5. **Sentiment Rule:** If user is HOSTILE, uses profanity, or calls 'scam' -> Assign `handover` task to `admin_worker` (URGENT).
-6. **Handoff Policy:** 
-   - If user asks for "Manager" or "Human" normally: DO NOT handoff. Assign `sales_worker` task: "Ask why they need a manager and offer to help first".
-   - Only handoff if user is insistent, angry, or claims an emergency.
-
-**ADMIN / MANAGER MODE:**
-If `is_admin` is True, you are the **Chief of Staff**.
-- If Manager says "Approve" (or similar): Assign `approve_order` task to `admin_worker`.
-- If Manager says "Reject", "No", or gives a reason ("Out of stock"): Assign `reject_order` task to `admin_worker` with the reason.
-- If Manager asks "Who is pending?": Assign `list_pending_approvals` task to `admin_worker`.
-- If Manager's intent is ambiguous ("Yes"), still assign `approve_order` (the tool handles ambiguity).
+1. `sales_worker`: Product search, explanation, visual analysis, chat.
+2. `admin_worker`: Commands, stock checks, approvals (>25k), reporting.
+3. `payment_worker`: Delivery calculation, payment links.
 
 **Output Format (JSON ONLY):**
 Return a JSON object with a 'plan' list.
-Each item in 'plan': {"id": "step1", "worker": "sales_worker", "task": "Search for 'Ringlight'", "reason": "User asked for price"}
+Each item must have:
+- `id`: "step1", "step2", etc.
+- `worker`: "sales_worker", "admin_worker", or "payment_worker"
+- `task`: Detailed instruction.
+- `dependencies`: List of IDs that must finish BEFORE this step. [] for no dependencies.
+- `reason`: Why this step is needed.
 
-**Fast-Path Examples:**
-- User: "Hi" -> Plan: `[{"worker": "sales_worker", "task": "Greet user warmly", "reason": "Greeting"}]`
-- User: [Image] -> Plan: `[{"worker": "sales_worker", "task": "Analyze image and find products", "reason": "Visual Search"}]`
-- Admin: "Approve" -> Plan: `[{"worker": "admin_worker", "task": "Execute command: /approve", "reason": "Manager Command"}]`
+**Example:**
+User: "I want 5 ringlights (10k each) delivered to Lekki"
+Plan:
+[
+  {
+    "id": "step1", 
+    "worker": "sales_worker", 
+    "task": "Confirm stock for 5 ringlights", 
+    "dependencies": [], 
+    "reason": "Check availability"
+  },
+  {
+    "id": "step2", 
+    "worker": "payment_worker", 
+    "task": "Calculate delivery fee for Lekki", 
+    "dependencies": [], 
+    "reason": "Can run parallel to stock check"
+  },
+  {
+    "id": "step3", 
+    "worker": "admin_worker", 
+    "task": "Request approval for 50k order", 
+    "dependencies": ["step1", "step2"], 
+    "reason": "Needs stock and delivery confirmed first"
+  }
+]
 
-**Complex Example:**
-- User: "I want 5 ringlights (10k each) delivered to Lekki"
-- Plan: 
-  1. `{"worker": "sales_worker", "task": "Confirm stock for 5 ringlights", "reason": "Check availability"}`
-  2. `{"worker": "payment_worker", "task": "Calculate delivery fee for Lekki", "reason": "Delivery calc"}`
-  3. `{"worker": "admin_worker", "task": "Request approval for 50k order", "reason": "High Value"}`
+**Business Rules:**
+1. **Approval:** Orders > 25k need `admin_worker` approval.
+2. **Visual:** Image -> `sales_worker` first.
+3. **Delivery:** Always calculate delivery before payment.
 
 **Current Context:**
 """
     if visual_context:
         system_prompt += f"\n(Visual Info: {visual_context})\n"
 
-    # We need to construct the LLM call
+    # Hybrid Stack: Planner uses Scout 17B (Reverted per user request)
     llm = ChatGroq(
-        temperature=0.0, # Strict logic
+        temperature=0.0,
         groq_api_key=settings.LLAMA_API_KEY,
-        model_name="meta-llama/llama-4-scout-17b-16e-instruct", # Using a smarter model for Planning
+        model_name="meta-llama/llama-4-scout-17b-16e-instruct",
         response_format={"type": "json_object"}
     )
     
@@ -110,20 +119,36 @@ Each item in 'plan': {"id": "step1", "worker": "sales_worker", "task": "Search f
         plan_data = json.loads(json_str)
         plan_list = plan_data.get("plan", [])
         
+        # Initialize Task Statuses
+        task_statuses = {}
+        retry_counts = {}
+        for step in plan_list:
+            step_id = step.get("id")
+            if step_id:
+                task_statuses[step_id] = "pending"
+                retry_counts[step_id] = 0
+        
         if not plan_list:
-            # Fallback for empty plan
-            plan_list = [{"worker": "sales_worker", "task": "Reply to user", "reason": "Fallback"}]
+            plan_list = [{"id": "fallback", "worker": "sales_worker", "task": "Reply to user", "dependencies": [], "reason": "Fallback"}]
+            task_statuses["fallback"] = "pending"
+            retry_counts["fallback"] = 0
             
         logger.info(f"Planner generated {len(plan_list)} steps.")
         
         return {
             "plan": plan_list,
             "current_step_index": 0,
+            "task_statuses": task_statuses,
+            "retry_counts": retry_counts,
             "planner_thought": f"Created plan with {len(plan_list)} steps."
         }
 
     except Exception as e:
         logger.error(f"Planner failed: {e}")
-        # Fallback plan
-        fallback_plan = [{"worker": "sales_worker", "task": "Reply to user politely", "reason": "Planner Error"}]
-        return {"plan": fallback_plan, "current_step_index": 0}
+        fallback_plan = [{"id": "err", "worker": "sales_worker", "task": "Reply politely about error", "dependencies": [], "reason": "Planner Error"}]
+        return {
+            "plan": fallback_plan, 
+            "current_step_index": 0,
+            "task_statuses": {"err": "pending"},
+            "retry_counts": {"err": 0}
+        }
