@@ -132,7 +132,14 @@ If you simply reply, that is the result.
                 elif name == "retrieve_user_memory":
                     tool_output = await retrieve_user_memory.ainvoke(args)
                 elif name == "detect_product_from_image":
-                    tool_output = await detect_product_from_image.ainvoke(args)
+                    # OLD: tool_output = await detect_product_from_image.ainvoke(args)
+                    # NEW: Call MCP knowledge.analyze_and_enrich
+                    from app.services.mcp_service import mcp_service
+                    img_url = args.get("image_url")
+                    if img_url:
+                        tool_output = await mcp_service.call_tool("knowledge", "analyze_and_enrich", {"image_url": img_url})
+                    else:
+                        tool_output = "Error: No image_url provided."
                 
                 # Append tool output to result, UNLESS it's a silent tool like save_memory/save_interaction
                 if name != "save_user_interaction":

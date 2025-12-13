@@ -41,13 +41,10 @@ async def admin_worker_node(state: AgentState):
     try:
         # 1. STOCK CHECK
         if "stock" in task_desc and "check" in task_desc:
-             from app.services.db_service import AsyncSessionLocal
-             from sqlalchemy import text
-             
-             async with AsyncSessionLocal() as session:
-                 result = await session.execute(text("SELECT COUNT(*) FROM products"))
-                 count = result.scalar()
-             response_text = f"Stock Check: {count} products found in database."
+             # Refactored: We no longer query local DB for total count.
+             # If specific product stock is needed, it should be a Sales Worker task.
+             # If "Inventory Count" is requested, redirect to POS.
+             response_text = "Stock Check: functionality has moved. Please use 'search [product]' to check specific stock, or view the PHPPOS Dashboard for total inventory reports."
 
         # 2. GENERATE REPORT
         elif "report" in task_desc or "/report" in task_desc:

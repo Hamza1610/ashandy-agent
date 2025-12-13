@@ -48,23 +48,20 @@ async def search_products(query: str) -> str:
 @tool("get_product_by_id_tool")
 async def get_product_by_id(product_id: str) -> str:
     """
-    Get detailed information about a specific product by ID.
-    
-    Args:
-        product_id: The product identifier
-        
-    Returns:
-        Detailed product information including price, stock, description
+    Get detailed information about a specific product by ID via MCP.
     """
     try:
         logger.info(f"Getting product details for ID: {product_id}")
         
-        result = await get_product_details.ainvoke(product_id)
+        # Use MCP Service directly
+        from app.services.mcp_service import mcp_service
+        result = await mcp_service.call_tool("pos", "get_product_details", {"item_id": product_id})
         
-        if not result:
-            return f"Product with ID '{product_id}' not found."
+        if not result or "Error" in result:
+             # Fallback to fuzzy search if ID fails? Unlikely if ID is correct.
+             return f"Product with ID '{product_id}' not found or error occurred: {result}"
         
-        return f"Product Details:\n{result}"
+        return result
         
     except Exception as e:
         logger.error(f"Product detail fetch failed: {e}")
@@ -74,26 +71,23 @@ async def get_product_by_id(product_id: str) -> str:
 @tool("check_product_stock_tool")
 async def check_product_stock(product_name: str) -> str:
     """
-    Check if a specific product is in stock.
-    
-    Args:
-        product_name: Name of the product to check
-        
-    Returns:
-        Stock availability status
+    Check if a specific product is in stock via MCP.
     """
     try:
         logger.info(f"Checking stock for: {product_name}")
         
-        # Search for the product first
-        search_result = await search_pos_direct.ainvoke(product_name)
+        # We use search_products via MCP because 'check_stock' in server might expect ID.
+        # If product_name is a name, search is safer.
+        from app.services.mcp_service import mcp_service
+        # If the input looks like an ID, we could use check_stock(id), but name is common.
+        # Let's stick to search logic which returns stock.
         
-        if "No products found" in search_result:
-            return f"'{product_name}' is not available in our inventory."
+        result = await mcp_service.call_tool("pos", "search_products", {"query": product_name})
         
-        # Extract stock info from search results
-        # The search results should include stock status
-        return search_result
+        if not result or "No matching products" in result:
+             return f"'{product_name}' is not available in our inventory."
+             
+        return result
         
     except Exception as e:
         logger.error(f"Stock check failed: {e}")
@@ -114,77 +108,17 @@ async def search_pos_direct(query: str) -> str:
     if mcp_result and "Error" not in mcp_result:
         return mcp_result
         
-    logger.warning(f"MCP Search failed/returned error: {mcp_result}. Falling back.")
+    logger.warning(f"MCP Search failed/returned error: {mcp_result}. Falling back to Mock.")
 
     # 2. Mock Fallback (if MCP unavailable)
-    return \"\"\"
+    return """
 [MOCK - MCP DISCONNECTED]
 - ID: 999
   Name: Nivea Body Lotion (Local Mock)
   Price: ₦4,500
   Stock: 15
   Desc: Deep moisture for dry skin.
-\"\"\"
+"""
 
-@tool
-async def sync_inventory_from_pos(data: list) -> str:
-    """
-    Sync inventory data coming from the local POS.
-    Data should be a list of product dictionaries: [{'sku': '...', 'qty': 10, 'price': 5000}, ...]
-    """
-    if not data:
-        return "No data provided."
-
-    count = 0
-    try:
-        async with AsyncSessionLocal() as session:
-            for item in data:
-                sku = item.get('sku')
-                qty = item.get('qty', 0)
-                price = item.get('price')
-                
-                # Update product logic
-                # Finding by SKU
-                result = await session.execute(text("SELECT product_id FROM products WHERE sku = :sku"), {"sku": sku})
-                prod_row = result.fetchone()
-                
-                if prod_row:
-                    # Update (simplified query, avoiding ORM overhead for bulk speed in tool)
-                    await session.execute(
-                        text("UPDATE products SET price = :price, metadata = jsonb_set(COALESCE(metadata, '{}'), '{inventory_count}', :qty) WHERE sku = :sku"),
-                        {"price": price, "qty": str(qty), "sku": sku}
-                    )
-                    count += 1
-                else:
-                    logger.warning(f"Product SKU {sku} not found for sync.")
-            
-            await session.commit()
-            return f"Synced {count} items from POS."
-            
-    except Exception as e:
-        logger.error(f"POS Sync error: {e}")
-        return f"Sync failed: {e}"
-
-@tool
-async def push_order_to_pos(order_id: str) -> str:
-    """
-    Queue an order to be picked up by the local POS connector.
-    """
-    try:
-        async with AsyncSessionLocal() as session:
-            # Check if order exists
-            result = await session.execute(text("SELECT status FROM orders WHERE order_id = :oid"), {"oid": order_id})
-            order = result.fetchone()
-            if not order:
-                return f"Order {order_id} not found."
-            
-            # Update status to indicate ready for POS
-            await session.execute(
-                text("UPDATE orders SET status = 'queued_for_pos' WHERE order_id = :oid"),
-                {"oid": order_id}
-            )
-            await session.commit()
-            return f"Order {order_id} queued for POS sync."
-    except Exception as e:
-        logger.error(f"Push to POS error: {e}")
-        return f"Failed to queue order: {e}"
+# Note: sync_inventory_from_pos and push_order_to_pos have been removed 
+# as the system now relies on live MCP connection to POS.

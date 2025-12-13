@@ -17,78 +17,58 @@ async def check_admin_whitelist(phone_number: str) -> bool:
 
 @tool
 async def get_product_details(product_name_or_sku: str) -> str:
-    """Retrieve product details from the database by name or SKU."""
-    async with AsyncSessionLocal() as session:
-        # Simple fuzzy search implementation using ILIKE
-        query = text("""
-            SELECT name, price, description, sku
-            FROM products 
-            WHERE name ILIKE :term OR sku ILIKE :term
-            LIMIT 5
-        """)
-        result = await session.execute(query, {"term": f"%{product_name_or_sku}%"})
-        products = result.fetchall()
-        
-        if not products:
-            return "No products found."
-        
-        response = "Found products:\n"
-        for p in products:
-            response += f"- {p.name} ({p.sku}): ₦{p.price}\n  {p.description}\n"
-        return response
+    """Retrieve product details from the POS system by name or SKU."""
+    from app.services.mcp_service import mcp_service
+    # Reuse search logic as it is fuzzy
+    return await mcp_service.call_tool("pos", "search_products", {"query": product_name_or_sku})
 
+@tool
 async def create_order_record(user_id: str, amount: float, reference: str, details: Dict = None) -> str:
-    """Create a new order record in the database."""
-    async with AsyncSessionLocal() as session:
-        new_order = Order(
-            user_id=user_id,
-            total_amount=amount,
-            status="pending",
-            reference=reference,
-            details=details or {}
-        )
-        session.add(new_order)
-        await session.commit()
-        return f"Order created with Ref: {reference}"
+    """Create a new order/sale in the POS system."""
+    from app.services.mcp_service import mcp_service
+    import json
+    
+    # Construct sale data for POS
+    # We map 'details' to 'items' if possible, or send a generic structure
+    # details is expected to function as the items list in the new architecture
+    
+    sale_data = {
+        "customer_id": user_id, # Assuming mapping or passing raw ID
+        "items": details.get("items", []) if details else [],
+        "reference": reference,
+        "amount": amount
+    }
+    
+    response = await mcp_service.call_tool("pos", "create_order", {"order_json": json.dumps(sale_data)})
+    return response
 
 @tool
 async def get_order_by_reference(reference: str) -> Dict:
-    """Retrieve an order by its payment reference."""
-    async with AsyncSessionLocal() as session:
-        query = text("SELECT * FROM orders WHERE reference = :ref")
-        result = await session.execute(query, {"ref": reference})
-        order = result.fetchone()
+    """Retrieve an order by its reference ID (Sale ID) from POS."""
+    from app.services.mcp_service import mcp_service
+    import json
+    
+    result = await mcp_service.call_tool("pos", "get_order", {"order_id": reference})
+    
+    if "not found" in result.lower() or "error" in result.lower():
+        return {}
         
-        if not order:
-            return {}
-            
-        # Assuming SQL returns row, convert to dict. 
-        # details column is JSONB in standard setups, asyncpg handles it.
-        return {
-            "reference": order.reference,
-            "amount": order.total_amount,
-            "user_id": order.user_id,
-            "details": order.details,
-            "status": order.status
-        }
+    try:
+        # If result is JSON string, parse it
+        # The MCP tool returns a string representation of the dict or usage verification
+        # Ideally we parse it back to dict for the agent
+        # However, the tool returns 'str', need to be careful if it's not valid JSON
+        # The pos_client returns str(sale) which uses Python's single quotes.
+        # This is a bit messy for 'Dict' return type.
+        # But let's return the string or a simple dict wrapping the strings.
+        return {"raw_data": result}
+    except:
+        return {}
 
 @tool
 async def get_active_order_reference(user_id: str) -> str:
     """
-    Retrieve the reference of the most recent PENDING order for a user.
-    Useful for checking payment status when the user claims they paid.
+    Retrieve the reference of a recent order. 
+    (Refactored to ask user or check recent interactions in Memory/POS - Placeholder)
     """
-    async with AsyncSessionLocal() as session:
-        # Get the latest 'pending' order
-        query = text("""
-            SELECT reference FROM orders 
-            WHERE user_id = :uid AND status = 'pending' 
-            ORDER BY created_at DESC 
-            LIMIT 1
-        """)
-        result = await session.execute(query, {"uid": user_id})
-        record = result.fetchone()
-        
-        if record:
-            return record.reference
-        return "No pending order found."
+    return "Please provide the Order ID or Reference Number."

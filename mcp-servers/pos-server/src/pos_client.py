@@ -82,6 +82,101 @@ class PHPPOSClient:
             logger.error(f"POS Client Exception: {e}")
             return self._get_mock_data(query)
 
+    async def get_item_details(self, item_id: str) -> str:
+        """
+        Get detailed info for a specific item by ID.
+        """
+        url = f"{self.base_url}/items/{item_id}"
+        logger.info(f"Getting Item Details: {url}")
+        
+        try:
+             async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(url, headers=self.headers)
+                
+                if response.status_code != 200:
+                    return f"Error retrieving item {item_id}: {response.status_code}"
+                
+                item = response.json()
+                
+                # Format detailed view
+                price = item.get("unit_price", 0)
+                try:
+                    price = int(float(price))
+                except:
+                    pass
+                    
+                locs = item.get("locations", {})
+                stock_str = ""
+                total_qty = 0
+                for loc_id, loc_data in locs.items():
+                    q = loc_data.get("quantity", 0)
+                    stock_str += f"  - Loc {loc_id}: {q}\n"
+                    try:
+                        total_qty += float(q)
+                    except:
+                        pass
+                
+                return f"""
+[Product Details]
+ID: {item.get('item_id')}
+Name: {item.get('name')}
+Category: {item.get('category')}
+Price: ₦{price:,}
+Total Stock: {int(total_qty)}
+Breakdown:
+{stock_str}
+Description: {item.get('description')}
+Image: {item.get('image_id')}
+"""
+        except Exception as e:
+            logger.error(f"Get Item Error: {e}")
+            return f"Failed to get item details: {e}"
+
+    async def create_sale(self, sale_data: Dict[str, Any]) -> str:
+        """
+        Create a new sale/order in PHPPOS.
+        args:
+            sale_data: Dict containing 'items' (list of {item_id, quantity}), 'customer_id' (optional), etc.
+        """
+        url = f"{self.base_url}/sales"
+        logger.info(f"Creating Sale: {sale_data}")
+        
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(url, json=sale_data, headers=self.headers)
+                
+                if response.status_code not in [200, 201]:
+                    logger.error(f"Sale Creation Failed: {response.text}")
+                    return f"Failed to create sale: {response.status_code} - {response.text}"
+                
+                result = response.json()
+                return f"Sale Created Successfully. Sale ID: {result.get('sale_id')}"
+                
+        except Exception as e:
+             logger.error(f"Create Sale Error: {e}")
+             return f"Error creating sale: {e}"
+
+    async def get_sale(self, sale_id: str) -> str:
+        """
+        Get sale details.
+        """
+        url = f"{self.base_url}/sales/{sale_id}"
+        logger.info(f"Getting Sale: {sale_id}")
+        
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(url, headers=self.headers)
+                
+                if response.status_code != 200:
+                    return f"Sale {sale_id} not found."
+                
+                sale = response.json()
+                # Format specific sale details if needed, or dump JSON
+                return str(sale)
+                
+        except Exception as e:
+            return f"Error retrieving sale: {e}"
+
     def _get_mock_data(self, query: str) -> str:
         """Fallback mock data for development."""
         return """
