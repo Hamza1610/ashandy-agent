@@ -128,11 +128,17 @@ async def admin_worker_node(state: AgentState):
              tool_res = await approve_order.ainvoke({"target_user_id": target_user})
              response_text = f"Approval Action: {tool_res}"
         
-        else:
              response_text = f"Admin processed task: {task_desc}"
              
-        return {"worker_result": response_text}
+        from langchain_core.messages import AIMessage
+        return {
+            "worker_result": response_text,
+            "messages": [AIMessage(content=response_text)]
+        }
         
     except Exception as e:
         logger.error(f"Admin Worker Error: {e}", exc_info=True)
-        return {"worker_result": f"Error: {str(e)}"}
+        return {
+            "worker_result": f"Error: {str(e)}",
+            "messages": [AIMessage(content=f"Admin Error: {str(e)}")]
+        }

@@ -100,6 +100,25 @@ Output strictly valid JSON:
         data = json.loads(json_str)
         
         logger.info(f"Detection Result: {data}")
+        
+        # --- ENHANCEMENT: Auto-Perform Vector Search ---
+        try:
+            logger.info("Auto-triggering visual vector search...")
+            # 1. Get Embedding
+            vector = await process_image_for_search.ainvoke(image_url)
+            
+            if vector:
+                from app.services.mcp_service import mcp_service
+                # 2. Search Knowledge Graph
+                search_res = await mcp_service.call_tool("knowledge", "search_visual_memory", {"vector": vector})
+                data["matched_products"] = search_res
+            else:
+                data["matched_products"] = "Could not generate vector for search."
+                
+        except Exception as ve:
+             logger.error(f"Visual Search Auto-fail: {ve}")
+             data["matched_products"] = "Search failed."
+             
         return data
 
     except Exception as e:

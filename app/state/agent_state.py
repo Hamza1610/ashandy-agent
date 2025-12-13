@@ -103,6 +103,16 @@ class AgentState(TypedDict):
     error: Optional[str]
     """Error message if any step fails"""
     
+    # ========== Planning & Execution ==========
+    plan: Optional[List[Dict]]
+    """List of tasks to execute"""
+    
+    current_step_index: Optional[int]
+    """Index of the current task being executed"""
+
+    worker_result: Optional[str]
+    """Result from the last worker execution"""
+
     # ========== Response Metadata ==========
     send_result: Optional[Dict]
     """Result of sending message via Meta API"""

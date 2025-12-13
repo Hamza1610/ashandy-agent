@@ -49,8 +49,9 @@ Analyze the user's message and create a step-by-step Execution Plan.
 1. **Approval Rule:** If user wants to buy items with Total Value > ₦25,000 -> Assign `request_approval` task to `admin_worker`.
 2. **Visual Rule:** If message has an image -> Assign `analyze_image` task to `sales_worker` FIRST.
 3. **Delivery Rule:** If user is buying -> Assign `calculate_delivery` task to `payment_worker` BEFORE `generate_link`.
-4. **Sentiment Rule:** If user is HOSTILE, uses profanity, or calls 'scam' -> Assign `handover` task to `admin_worker` (URGENT).
-5. **Handoff Policy:** 
+4. **Context Rule:** If user references past events ("Remember what I said") -> Assign `retrieve_memory` task to `sales_worker`.
+5. **Sentiment Rule:** If user is HOSTILE, uses profanity, or calls 'scam' -> Assign `handover` task to `admin_worker` (URGENT).
+6. **Handoff Policy:** 
    - If user asks for "Manager" or "Human" normally: DO NOT handoff. Assign `sales_worker` task: "Ask why they need a manager and offer to help first".
    - Only handoff if user is insistent, angry, or claims an emergency.
 

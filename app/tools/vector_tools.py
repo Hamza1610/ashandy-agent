@@ -57,10 +57,10 @@ async def search_text_products(query: str) -> str:
         logger.error(f"Error searching text products via MCP: {e}")
         return "Error executing text search."
 
+@tool
 async def save_user_interaction(user_id: str, user_msg: str, ai_msg: str) -> str:
     """
     Save a chat interaction (User + AI) to long-term memory via Knowledge MCP.
-    This is a normal async function (not a LangChain tool).
     """
     if not user_id or not user_msg:
         return "Missing required fields for memory save."

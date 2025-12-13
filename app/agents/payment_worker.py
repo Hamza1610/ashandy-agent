@@ -34,10 +34,34 @@ async def payment_worker_node(state: AgentState):
     
     # Task Dispatch
     if "delivery" in task_desc:
+        from app.tools.tomtom_tools import calculate_delivery_fee
+        
+        # Extract location more robustly or pass full desc
         location = task_desc.replace("calculate delivery", "").strip()
-        fee = 1500.0 if "lekki" in location.lower() else 1000.0 # Placeholder logic
-        final_total = total_amount + fee
-        return {"worker_result": f"Delivery to {location} is ₦{fee:,.0f}. Total is ₦{final_total:,.0f}"}
+        if not location:
+             # Try to get address from state?
+             location = "Ibadan" # Fallback or error
+        
+        # Call MCP Tool
+        # Result is a dict wrapper: {"formatted_response": "..."} or {"error": "..."}
+        tool_res = await calculate_delivery_fee.ainvoke(location)
+        
+        if "formatted_response" in tool_res:
+            # Assuming formatted_response contains the fee, e.g., "Delivery fee: 1500"
+            # We need to parse the fee from the string. This is a simplification.
+            # A more robust tool would return structured data like {"fee": 1500}.
+            try:
+                fee_str = tool_res["formatted_response"].replace("Delivery fee: ", "").replace(",", "").strip()
+                fee = float(fee_str)
+            except ValueError:
+                logger.error(f"Could not parse delivery fee from: {tool_res['formatted_response']}")
+                return {"worker_result": f"Delivery Check Failed: Could not parse fee from tool response."}
+
+            final_total = total_amount + fee
+            response = f"Delivery to {location} is ₦{fee:,.0f}. Total is ₦{final_total:,.0f}"
+            return {"worker_result": response, "messages": [AIMessage(content=response)]}
+        else:
+             return {"worker_result": f"Delivery Check Failed: {tool_res.get('error')}"}
 
     # 1. Get Email
     customer_email = state.get("user_email") or "customer@ashandy.org" # Fallback if not found

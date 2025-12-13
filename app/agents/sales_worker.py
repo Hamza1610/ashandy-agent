@@ -1,8 +1,7 @@
 from app.models.agent_states import AgentState
 from app.tools.product_tools import search_products, check_product_stock
-from app.tools.memory_tools import save_memory
+from app.tools.vector_tools import save_user_interaction, search_text_products, retrieve_user_memory
 from app.tools.visual_tools import process_image_for_search, detect_product_from_image
-from app.tools.vector_tools import search_text_products
 from langchain_groq import ChatGroq
 from app.utils.config import settings
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
@@ -49,13 +48,15 @@ async def sales_worker_node(state: AgentState):
              image_url = messages[-1].additional_kwargs.get("image_url")
         
         if image_url:
-            visual_info_block += f"\n[Image Available]: {image_url}\nTo analyze, use `detect_product_from_image('{image_url}')`."
+        if image_url:
+            visual_info_block += f"\n[Image Available]: {image_url}\nTo analyze AND search for this product in our inventory, use `detect_product_from_image('{image_url}')`."
 
         if state.get("visual_matches"):
              visual_info_block += f"\n[Previous Analysis]: {state.get('visual_matches')}"
 
         # Setup Tools
-        tools = [search_products, check_product_stock, save_memory, detect_product_from_image]
+        # Added retrieve_user_memory so the worker can fetch context if requested by Planner
+        tools = [search_products, check_product_stock, save_user_interaction, detect_product_from_image, retrieve_user_memory]
         
         llm = ChatGroq(
             temperature=0.3,
@@ -130,18 +131,21 @@ If you simply reply, that is the result.
                     tool_output = await search_products.ainvoke(args)
                 elif name == "check_product_stock_tool" or name == "check_product_stock":
                     tool_output = await check_product_stock.ainvoke(args)
-                elif name == "save_memory":
-                    tool_output = await save_memory.ainvoke(args)
+                elif name == "save_user_interaction":
+                    tool_output = await save_user_interaction.ainvoke(args)
+                elif name == "retrieve_user_memory":
+                    tool_output = await retrieve_user_memory.ainvoke(args)
                 elif name == "detect_product_from_image":
                     tool_output = await detect_product_from_image.ainvoke(args)
                 
-                # Append tool output to result, UNLESS it's a silent tool like save_memory
-                if name != "save_memory":
+                # Append tool output to result, UNLESS it's a silent tool like save_memory/save_interaction
+                if name != "save_user_interaction":
                     # Clean append: Just add the content with newlines, no technical headers
                     final_result += f"\n\n{tool_output}"
         
         return {
-            "worker_result": final_result
+            "worker_result": final_result,
+            "messages": [AIMessage(content=final_result)]
             # We do NOT increment step index here. The Planner does that on return.
         }
 
