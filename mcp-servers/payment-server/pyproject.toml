@@ -1,0 +1,17 @@
+[project]
+name = "ashandy-payment-server"
+version = "0.1.0"
+description = "MCP Server for Ashandy Payment (Paystack)"
+dependencies = [
+    "mcp[cli]>=0.1.0",
+    "httpx>=0.24.0",
+    "python-dotenv>=1.0.0"
+]
+requires-python = ">=3.10"
+
+[project.scripts]
+payment-server = "ashandy_payment_server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

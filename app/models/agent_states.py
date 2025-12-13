@@ -43,3 +43,17 @@ class AgentState(TypedDict):
     
     # Error handling
     error: Optional[str]
+
+    # --- NEW ARCHITECTURE: PLANNER & WORKERS ---
+    
+    # Planner State
+    plan: List[Dict[str, Any]] # List of TaskStep dicts
+    current_step_index: int
+    planner_thought: Optional[str] # Chain of thought reasoning
+    
+    # Supervisor State
+    supervisor_verdict: str # "safe", "block", "handoff"
+    
+    # Worker State
+    current_task: Optional[str] # Description of current task being executed
+    worker_result: Optional[str] # Result from the worker to pass back to planner

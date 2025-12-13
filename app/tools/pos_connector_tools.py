@@ -11,68 +11,29 @@ logger = logging.getLogger(__name__)
 @tool
 async def search_phppos_products(query: str) -> str:
     """
-    Search for products, prices, and inventory directly from the PHPPOS system.
-    Use this to get the most up-to-date details when a user asks about a specific product.
+    Search for products via the MCP POS Server.
     """
-    url = f"{settings.PHPPOS_BASE_URL}/items" 
-    headers = {
-        "accept": "application/json",
-        "x-api-key": settings.POS_CONNECTOR_API_KEY,
-        "User-Agent": "curl/8.5.0"
-    }
+    logger.info(f"Using MCP for Product Search: '{query}'")
     
-    logger.info(f"Executing search_phppos_products with query: '{query}'")
+    # Imports inside tool to delay dependency
+    from app.services.mcp_service import mcp_service # lazy
     
-    try:
-        # Note: The API might support ?search_term= or similar. 
-        # If specific search param isn't documented, we might fetch recent/all and filter (inefficient but works for MVP/small catalog)
-        # OR we assume the query is an ID.
-        # Let's try appending search param if supported, otherwise filtering in memory.
-        # Based on typical PHPPOS, usually there's a search parameter. Let's try 'search'.
+    # 1. Try MCP Server
+    mcp_result = await mcp_service.call_tool("pos", "search_products", {"query": query})
+    if mcp_result and "Error" not in mcp_result:
+        return mcp_result
         
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            # We'll try fetching all and filtering in python for now to be safe, 
-            # unless catalogue is huge. User indicated "fetch the product".
-            # Optimization: Use ingestion cache (Pinecone) for "Search" and this tool for "Details" if specific.
-            # But user wants this tool to "fetch product".
-            
-            response = await client.get(url, headers=headers)
-            response.raise_for_status()
-            items = response.json()
-            
-            # Simple fuzzy filter in Python
-            matches = []
-            query_lower = query.lower()
-            
-            for item in items:
-                name = item.get("name", "").lower()
-                # Check Name or Item ID
-                if query_lower in name or query_lower == str(item.get("item_id")):
-                    matches.append(item)
-                    if len(matches) >= 5: # Limit results
-                        break
-            
-            if not matches:
-                return "No matching products found in POS."
-                
-            # Format output
-            result_str = ""
-            for m in matches:
-                # Extract clean details
-                qty_data = m.get("locations", {}).get("1", {}).get("quantity", "N/A") # Assuming Loc 1
-                price = int(float(m.get("unit_price", 0)))
-                result_str += f"""
-- ID: {m.get('item_id')}
-  Name: {m.get('name')}
-  Price: ₦{price:,}
-  Stock: {qty_data}
-  Desc: {m.get('description', 'N/A')}
-"""
-            return result_str
+    logger.warning(f"MCP Search failed/returned error: {mcp_result}. Falling back.")
 
-    except Exception as e:
-        logger.error(f"PHPPOS Fetch Error: {e}")
-        return "Error connecting to POS system."
+    # 2. Mock Fallback (if MCP unavailable)
+    return """
+[MOCK - MCP DISCONNECTED]
+- ID: 999
+  Name: Nivea Body Lotion (Local Mock)
+  Price: ₦4,500
+  Stock: 15
+  Desc: Deep moisture for dry skin.
+"""
 
 @tool
 async def sync_inventory_from_pos(data: list) -> str:

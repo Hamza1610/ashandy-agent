@@ -1,46 +1,36 @@
 import asyncio
 import logging
-from sentence_transformers import SentenceTransformer
-
 from app.services.meta_service import meta_service
-from app.services.vector_service import vector_service
 from app.tools.instagram_tools import analyze_instagram_post
 from app.tools.visual_tools import process_image_for_search
 from app.utils.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Initialize model once at module level (lazy load in function if needed for speed)
-# but for a service, module level is fine if memory permits.
-# To be safe for startup time, we load it inside the class or method.
-
 class IngestionService:
     def __init__(self):
-        self.text_model = None
-
-    def get_model(self):
-        if not self.text_model:
-            self.text_model = SentenceTransformer('all-MiniLM-L6-v2')
-        return self.text_model
+        # Local models removed. Relies entirely on MCP Knowledge Server.
+        pass
 
     async def sync_instagram_products(self, limit: int = 10) -> str:
         """
-        Sync products from Instagram to Pinecone.
-        Returns a summary string of the operation.
+        Sync products from Instagram to Knowledge Graph (Pinecone).
         """
         if not settings.INSTAGRAM_INGESTION_ENABLED:
              return "Instagram ingestion is disabled in settings."
 
-        logger.info("🚀 Starting Instagram Inventory Sync (Service)...")
+        logger.info("🚀 Starting Instagram Inventory Sync (MCP Mode)...")
         
         try:
+            # Lazy import MCP to avoid circular deps at startup if any
+            from app.services.mcp_service import mcp_service
+            
             posts = await meta_service.get_instagram_posts(limit=limit)
             if not posts:
                 return "No posts found or failed to fetch from Instagram."
             
             logger.info(f"📥 Fetched {len(posts)} posts.")
             
-            model = self.get_model()
             products_added = 0
             
             for post in posts:
@@ -63,30 +53,31 @@ class IngestionService:
                     p_price = analysis.get("price", 0)
                     p_desc = analysis.get("description", "")
                     
-                    # Dupe Check
-                    name_vector = model.encode(p_name).tolist()
-                    dupe_check = await vector_service.query_vectors(
-                        index_name=settings.PINECONE_INDEX_PRODUCTS_TEXT,
-                        vector=name_vector,
-                        top_k=1,
-                        filter_dict={"source": "phppos"}
-                    )
-                    
-                    if dupe_check and dupe_check[0]['score'] > 0.85:
-                        logger.info(f"Skipping duplicate: {p_name}")
-                        continue
-                        
-                    # Visual Embedding
+                    # 1. Dupe Check via MCP (Text Search)
+                    dupe_check = await mcp_service.call_tool("knowledge", "search_memory", {"query": p_name})
+                    if dupe_check and "No matching products" not in dupe_check and p_name in dupe_check:
+                         # Very loose duplicate check string matching, but efficient enough for agent
+                         logger.info(f"Skipping likely duplicate: {p_name}")
+                         continue
+
+                    # 2. Upsert Text Product via MCP (Server handles embedding)
+                    await mcp_service.call_tool("knowledge", "upsert_product", {
+                        "name": p_name,
+                        "description": p_desc,
+                        "price": p_price,
+                        "source": "instagram",
+                        "image_url": media_url,
+                        "permalink": permalink,
+                        "item_id": post_id
+                    })
+
+                    # 3. Visual Embedding (Client-side DINOv2 -> MCP Store)
+                    # We still do DINOv2 locally here via tool (since it uses HF API, not local model)
                     visual_embedding = await process_image_for_search.ainvoke(media_url)
-                    if not visual_embedding:
-                        continue
-                        
-                    # Upsert Visual
-                    vec_id = f"ig_{post_id}"
-                    visual_record = {
-                        "id": vec_id,
-                        "values": visual_embedding,
-                        "metadata": {
+                    
+                    if visual_embedding:
+                        vec_id = f"ig_{post_id}"
+                        visual_metadata = {
                             "name": p_name,
                             "price": p_price,
                             "description": p_desc,
@@ -95,27 +86,11 @@ class IngestionService:
                             "permalink": permalink,
                             "item_id": post_id
                         }
-                    }
-                    
-                    # Upsert Text
-                    text_context = f"{p_name}. {p_desc}"
-                    text_embedding = model.encode(text_context).tolist()
-                    text_record = {
-                        "id": f"ig_txt_{post_id}",
-                        "values": text_embedding,
-                        "metadata": {
-                            "name": p_name,
-                            "price": p_price,
-                            "description": p_desc,
-                            "source": "instagram",
-                            "text": text_context,
-                            "image_url": media_url,
-                            "permalink": permalink
-                        }
-                    }
-                    
-                    vector_service.upsert_vectors(settings.PINECONE_INDEX_PRODUCTS, [visual_record])
-                    vector_service.upsert_vectors(settings.PINECONE_INDEX_PRODUCTS_TEXT, [text_record])
+                        await mcp_service.call_tool("knowledge", "upsert_vector_data", {
+                            "vector": visual_embedding,
+                            "metadata": visual_metadata,
+                            "id": vec_id
+                        })
                     
                     products_added += 1
                     logger.info(f"Saved: {p_name}")

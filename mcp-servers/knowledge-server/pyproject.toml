@@ -1,0 +1,19 @@
+[project]
+name = "ashandy-knowledge-server"
+version = "0.1.0"
+description = "MCP Server for Ashandy Knowledge (Pinecone + RAG)"
+dependencies = [
+    "mcp[cli]>=0.1.0",
+    "pinecone-client>=3.0.0",
+    "sentence-transformers>=2.2.0",
+    "torch>=2.0.0",
+    "python-dotenv>=1.0.0"
+]
+requires-python = ">=3.10"
+
+[project.scripts]
+knowledge-server = "knowledge_server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

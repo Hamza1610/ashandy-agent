@@ -13,70 +13,30 @@ logger = logging.getLogger(__name__)
 @tool("search_products_tool")
 async def search_products(query: str) -> str:
     """
-    Search for products using text query (searches both POS inventory and Instagram catalog).
-    
-    Args:
-        query: Customer's product search query (e.g., "red lipstick", "dry skin cream")
-        
-    Returns:
-        Formatted string with product matches including names, prices, and source.
+    Search for products using text query (searches Knowledge Server + POS).
     """
     try:
         print(f"\n>>> TOOL: search_products called with query='{query}'")
-        logger.info(f"Product search tool called with query: '{query}'")
+        logger.info(f"Product search tool called via MCP: '{query}'")
         
-        # 1. Generate Query Vector
-        # We need to initialize the model inside the tool or globally.
-        # Ideally globally, but for now importing here ensures no circular deps during startup if not careful.
-        from sentence_transformers import SentenceTransformer
-        from app.services.vector_service import vector_service
-        from app.utils.config import settings
+        # 1. Search via Knowledge MCP (Semantic)
+        from app.services.mcp_service import mcp_service
         
-        # This might be slow if loaded every time. In prod, load once in app startup.
-        # Checking if model is already loaded in app state would be better, but for simplicity:
-        model = SentenceTransformer('all-MiniLM-L6-v2') 
-        query_vector = model.encode(query).tolist()
+        # Note: Knowledge Server returns formatted string of matches.
+        knowledge_result = await mcp_service.call_tool("knowledge", "search_memory", {"query": query})
         
-        # 2. Query Pinecone
-        matches = await vector_service.query_vectors(
-            index_name=settings.PINECONE_INDEX_PRODUCTS_TEXT,
-            vector=query_vector,
-            top_k=5
-        )
+        # If knowledge search fails or returns "No matching products", we try POS fallback.
+        # But wait, Knowledge Server uses Pinecone which has the same data as before.
         
-        if not matches:
-             # Fallback to direct POS search if vector search fails or returns nothing?
-             logger.info("Vector search returned no results. Trying legacy POS search fallback.")
-             # Use existing POS connector tool
-             results = await search_phppos_products.ainvoke(query)
-             return f"Direct POS Search Results:\n{results}"
+        if knowledge_result and "No matching products" not in knowledge_result and "Error" not in knowledge_result:
+             return f"[Semantic Search Results]\n{knowledge_result}"
 
-        # 3. Format Results
-        result_str = "Found the following products:\n"
-        for i, m in enumerate(matches):
-            meta = m.get("metadata", {})
-            name = meta.get("name", "Unknown")
-            price = meta.get("price", "N/A")
-            desc = meta.get("description", "")[:100] + "..."
-            source = meta.get("source", "unknown").upper()
-            
-            # Format price nicely
-            try:
-                price_float = float(price)
-                price_display = f"₦{price_float:,.2f}"
-            except:
-                price_display = str(price)
-            
-            result_str += f"""
-{i+1}. **{name}**
-   - Price: {price_display}
-   - Source: {source}
-   - Details: {desc}
-"""
-        return result_str
+        # 2. Fallback to direct POS search (Exact Match)
+        logger.info("Knowledge search returned little/no results. Trying direct POS.")
+        pos_results = await search_phppos_products.ainvoke(query)
+        return f"[POS Search Results]\n{pos_results}"
         
     except Exception as e:
-        print(f"\n>>> TOOL ERROR in search_products: {type(e).__name__}: {str(e)}")
         logger.error(f"Product search failed: {e}", exc_info=True)
         return f"I encountered an error searching for products. Please try again."
 

@@ -30,9 +30,6 @@ async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
     """
     Receive WhatsApp messages.
     """
-    print("\n" + "="*100)
-    print(">>> WEBHOOK FUNCTION CALLED - NEW CODE VERSION <<<")
-    print("="*100 + "\n")
     
     from app.graphs.main_graph import app as agent_app
     from langchain_core.messages import HumanMessage
@@ -379,6 +376,8 @@ async def receive_paystack_webhook(request: Request):
                 else:
                      addr_str = str(delivery_info)
 
+                customer_phone = order.get("user_id", "N/A")
+
                 msg = (
                     f"✅ *PAYMENT CONFIRMED*\n"
                     f"🧾 *Ref:* {reference}\n"
@@ -390,7 +389,8 @@ async def receive_paystack_webhook(request: Request):
                     f"💰 *TOTAL PAID:* ₦{amount_naira:,.2f}\n"
                     f"------------------------------\n"
                     f"📦 *Delivery To:* {addr_str}\n"
-                    f"📧 *Cust Email:* {customer_email}"
+                    f"� *Phone:* {customer_phone}\n"
+                    f"📧 *Email:* {customer_email}"
                 )
                 
                 await meta_service.send_whatsapp_text(manager_phone, msg)

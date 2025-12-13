@@ -42,7 +42,7 @@ async def test_graph_message(request: TestMessageRequest):
         }
     """
     try:
-        from app.graphs.main_graph import app as graph_app
+        from app.workflows.main_workflow import app as graph_app
         from langchain_core.messages import HumanMessage
         
         logger.info(f"Test request: {request.message}")
@@ -69,9 +69,19 @@ async def test_graph_message(request: TestMessageRequest):
         messages = result.get("messages", [])
         ai_response = None
         
-        if len(messages) > 1:
-            last_msg = messages[-1]
-            ai_response = last_msg.content if hasattr(last_msg, 'content') else str(last_msg)
+        if len(messages) > 0:
+            # Iterate backwards to find the last AI message
+            for msg in reversed(messages):
+                if hasattr(msg, "type") and msg.type == "ai":
+                    ai_response = msg.content
+                    break
+                # Fallback: check class name if type attribute missing
+                if msg.__class__.__name__ == "AIMessage":
+                    ai_response = msg.content
+                    break
+            
+        if not ai_response:
+             ai_response = result.get("worker_result")
         
         return TestMessageResponse(
             status="success",
@@ -99,7 +109,7 @@ async def test_graph_message(request: TestMessageRequest):
 async def get_graph_info():
     """Get information about the graph structure."""
     try:
-        from app.graphs.main_graph import app as graph_app
+        from app.workflows.main_workflow import app as graph_app
         
         graph = graph_app.get_graph()
         nodes = list(graph.nodes.keys())

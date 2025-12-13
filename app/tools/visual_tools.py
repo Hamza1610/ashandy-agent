@@ -86,7 +86,6 @@ Output strictly valid JSON:
             b64 = base64.b64encode(image_bytes).decode('utf-8')
             data_url = f"data:{mime_type};base64,{b64}"
             image_content = {"type": "image_url", "image_url": {"url": data_url}}
-            image_content = {"type": "image_url", "image_url": {"url": data_url}}
 
         msg = HumanMessage(content=[
             {"type": "text", "text": prompt_text},
@@ -163,12 +162,9 @@ async def process_image_for_search(image_url: str) -> list:
             img_response = requests.get(image_url, timeout=10)
             img_response.raise_for_status()
             image_bytes = img_response.content
-            image_bytes = img_response.content
         elif image_url.startswith('file://'):
             # file:// URL - strip protocol
             file_path = image_url.replace('file://', '')
-            with open(file_path, 'rb') as f:
-                image_bytes = f.read()
             with open(file_path, 'rb') as f:
                 image_bytes = f.read()
         else:
@@ -176,8 +172,6 @@ async def process_image_for_search(image_url: str) -> list:
             file_path = Path(image_url)
             if not file_path.exists():
                 raise FileNotFoundError(f"Image file not found: {image_url}")
-            with open(file_path, 'rb') as f:
-                image_bytes = f.read()
             with open(file_path, 'rb') as f:
                 image_bytes = f.read()
         
@@ -195,18 +189,14 @@ async def process_image_for_search(image_url: str) -> list:
         # Parse response - DINOv2 returns embeddings as list
         embedding = response.json()
         
-        embedding = response.json()
-        
         # Normalize embedding format
         if isinstance(embedding, list):
             # Could be [[emb]] or [emb]
             if len(embedding) > 0:
                 if isinstance(embedding[0], list):
                     # Nested list [[emb]] - take first
-                    # Nested list [[emb]] - take first
                     result = embedding[0]
                 elif isinstance(embedding[0], (int, float)):
-                    # Direct list [emb]
                     # Direct list [emb]
                     result = embedding
                 else:

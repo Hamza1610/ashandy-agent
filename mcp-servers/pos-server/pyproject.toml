@@ -1,0 +1,17 @@
+[project]
+name = "ashandy-pos-server"
+version = "0.1.0"
+description = "MCP Server for Ashandy POS Connector"
+dependencies = [
+    "mcp[cli]>=0.1.0",
+    "httpx>=0.24.0",
+    "python-dotenv>=1.0.0"
+]
+requires-python = ">=3.10"
+
+[project.scripts]
+pos-server = "ashandy_pos_server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
