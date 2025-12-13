@@ -1,4 +1,3 @@
-```python
 from app.models.agent_states import AgentState
 from app.tools.cache_tools import update_semantic_cache
 from app.tools.product_tools import search_products, check_product_stock
@@ -16,7 +15,7 @@ import hashlib
 
 logger = logging.getLogger(__name__)
 
-async def sales_consultant_agent_node(state: AgentState):
+async def sales_agent_node(state: AgentState):
     """
     Sales Consultant Agent (Hybrid Resolution):
     - Clean Structure (Tool bindings allow LLM to decide).
@@ -203,6 +202,15 @@ You have access to these tools:
         query_hash = hashlib.md5(str(messages[-1].content).encode()).hexdigest()
         await update_semantic_cache.ainvoke({"query_hash": query_hash, "response": ai_message or "Tool Call"})
 
+        # 8. Return appropriate messages
+        # If payment intent detected, don't include AI message - payment agent will respond
+        if order_intent:
+            print(f">>> SALES AGENT: Order intent detected, delegating to payment agent")
+            return {
+                "messages": [],  # Don't add AI message, payment agent will respond
+                "order_intent": order_intent
+            }
+        
         return {
             "messages": final_messages,
             "order_intent": order_intent
@@ -211,4 +219,3 @@ You have access to these tools:
     except Exception as e:
         logger.error(f"Sales Agent Error: {e}", exc_info=True)
         return {"error": str(e)}
-```

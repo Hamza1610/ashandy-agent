@@ -1,6 +1,5 @@
 from app.state.agent_state import AgentState
-from app.tools.paystack_tools import generate_payment_link
-from app.tools.db_tools import create_order_record
+from app.tools.payment_tools import generate_payment_link
 from app.utils.order_parser import (
     extract_order_items,
     calculate_total,
@@ -8,6 +7,7 @@ from app.utils.order_parser import (
     extract_customer_email
 )
 from app.utils.config import settings
+from app.services.order_service import create_order
 from langchain_core.messages import SystemMessage, AIMessage
 import logging
 import uuid
@@ -81,8 +81,15 @@ async def payment_order_agent_node(state: AgentState):
     print(f">>>   Transport: ₦{transport_fee:,.2f}")
     print(f">>>   TOTAL: ₦{total_amount:,.2f}")
     
-    # Step 3: Get customer email
-    customer_email = extract_customer_email(messages, state)
+    # Step 3: Get customer email from STATE (set by webhook from contacts)
+    customer_email = state.get("customer_email")
+    
+    print(f">>> PAYMENT AGENT: Customer email from state: {customer_email}")
+    
+    # If no email in state, try to extract from messages (fallback)
+    if not customer_email:
+        print(f">>> PAYMENT AGENT: No email in state, trying to extract from messages...")
+        customer_email = extract_customer_email(messages, state)
     
     # Validate email format
     email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
@@ -106,26 +113,6 @@ async def payment_order_agent_node(state: AgentState):
     
     print(f">>> PAYMENT AGENT: Generating Paystack link...")
     print(f">>>   Reference: {reference}")
-    
-    # Store Order Details for later retrieval (Webhook)
-    order_data = state.get("order_data", {})
-    delivery_details = state.get("delivery_details", {})
-    delivery_fee = state.get("delivery_fee", 0)
-    
-    full_details = {
-        "items": order_data.get("items", []),
-        "subtotal": order_data.get("subtotal", amount),
-        "delivery_fee": delivery_fee,
-        "delivery_details": delivery_details,
-        "delivery_type": state.get("delivery_type", "Pickup")
-    }
-    
-    await create_order_record(
-        user_id=user_id,
-        amount=amount + delivery_fee,
-        reference=reference,
-        details=full_details
-    )
     
     try:
         # Generate actual Paystack link
@@ -164,11 +151,57 @@ async def payment_order_agent_node(state: AgentState):
         
         print(f">>> PAYMENT AGENT: Order data prepared for delivery")
         
+        # Step 6: Save order to database
+        try:
+            print(f">>> PAYMENT AGENT: Saving order to database...")
+            db_order = await create_order(
+                user_id=user_id,
+                paystack_reference=reference,
+                customer_email=customer_email,
+                customer_name=state.get("user_name", "Customer"),
+                customer_phone=user_id,
+                items=order_items,
+                items_total=items_total,
+                transport_fee=transport_fee,
+                total_amount=total_amount,
+                payment_link=link_result,
+                delivery_address=state.get("delivery_address", "To be confirmed"),
+                pickup_location="Ashandy Store, Ibadan"
+            )
+            print(f">>> PAYMENT AGENT: ✓ Order saved to database (ID: {db_order.order_id})")
+            logger.info(f"Order saved: {db_order.order_id}")
+            
+            # Add order ID to order_data
+            order_data["db_order_id"] = str(db_order.order_id)
+            
+        except Exception as e:
+            # Log error but continue - don't block payment link from being sent
+            print(f">>> PAYMENT AGENT WARNING: Failed to save order to DB: {e}")
+            logger.error(f"Order save failed: {e}", exc_info=True)
+        
+        # Create user-friendly message
+        items_summary = format_items_summary(order_items)
+        payment_message = f"""✅ *Payment Link Ready!*
+
+*Order Summary:*
+{items_summary}
+
+*Pricing:*
+• Items: ₦{items_total:,.0f}
+• Delivery: ₦{transport_fee:,.0f}
+• *Total: ₦{total_amount:,.0f}*
+
+*Complete your payment here:*
+{link_result}
+
+Once paid, we'll confirm your order and arrange delivery! 📦"""
+        
         return {
             "order_intent": True,
             "order_data": order_data,
             "paystack_reference": reference,
-            "messages": [AIMessage(content=link_result)]
+            "customer_email": customer_email,  # Persist email in state
+            "messages": [AIMessage(content=payment_message)]
         }
         
     except Exception as e:

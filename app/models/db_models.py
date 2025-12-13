@@ -70,13 +70,40 @@ class ChatMessage(Base):
 class Order(Base):
     __tablename__ = "orders"
 
+    # Core IDs
     order_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.user_id"), index=True)
-    paystack_reference = Column(String(100), index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.user_id"), index=True, nullable=True)
+    paystack_reference = Column(String(100), index=True, unique=True)
     phppos_sale_id = Column(Integer)
+    
+    # Customer Information
+    customer_email = Column(String(255), nullable=False)
+    customer_name = Column(String(100))
+    customer_phone = Column(String(50))
+    
+    # Order Items & Pricing
+    items = Column(JSON, nullable=False)  # [{"name": "...", "price": ..., "quantity": ...}]
+    items_total = Column(Float, nullable=False)
+    transport_fee = Column(Float, default=0.0)
     total_amount = Column(Float, nullable=False)
+    
+    # Delivery Information
+    delivery_address = Column(Text, default="To be confirmed")
+    delivery_status = Column(String(50), default="pending", index=True)  # pending, assigned, out_for_delivery, delivered
+    pickup_location = Column(String(255), default="Ashandy Store, Ibadan")
+    rider_phone = Column(String(50), nullable=True)
+    
+    # Payment Information
+    payment_link = Column(Text)
+    payment_status = Column(String(50), default="pending", index=True)  # pending, paid, failed
+    paid_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Legacy status field (kept for backward compatibility)
     status = Column(String(50), default="pending", index=True)
+    
+    # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     user = relationship("User", back_populates="orders")
 

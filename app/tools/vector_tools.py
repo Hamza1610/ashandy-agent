@@ -53,6 +53,77 @@ async def retrieve_user_memory(user_id: str) -> str:
         logger.error(f"Error retrieving user memory: {e}")
         return "Error retrieving memory."
 
+
+async def get_full_conversation_history(user_id: str, max_messages: int = 100):
+    """
+    Retrieve ALL conversation messages for a user from Pinecone.
+    Returns list of LangChain message objects for full context.
+    
+    Args:
+        user_id: User phone number or ID
+        max_messages: Maximum messages to fetch (default 100 for unlimited)
+    
+    Returns:
+        List of HumanMessage/AIMessage objects in chronological order
+    """
+    from langchain_core.messages import HumanMessage, AIMessage
+    
+    logger.info(f"Fetching full conversation history for {user_id} (max: {max_messages})")
+    
+    try:
+        embedding_model = get_embedding_model()
+        if not embedding_model:
+            logger.warning("Embedding model unavailable, returning empty history")
+            return []
+        
+        # Query for ALL user messages with high top_k
+        query_vector = embedding_model.encode(f"Conversation history for {user_id}").tolist()
+        
+        response = vector_service.query_vectors(
+            index_name=settings.PINECONE_INDEX_USER_MEMORY,
+            vector=query_vector,
+            top_k=max_messages,  # Fetch many messages
+            filter_metadata={"user_id": user_id}
+        )
+        
+        matches = response.get("matches", [])
+        if not matches:
+            logger.info(f"No conversation history found for {user_id}")
+            return []
+        
+        logger.info(f"Found {len(matches)} messages for {user_id}")
+        
+        # Parse messages from metadata
+        messages = []
+        for match in matches:
+            metadata = match.get('metadata', {})
+            memory_text = metadata.get('memory_text', '')
+            
+            # Memory text format: "User: <msg>\nAssistant: <msg>"
+            # Parse into separate messages
+            if 'User:' in memory_text and 'Assistant:' in memory_text:
+                parts = memory_text.split('\n')
+                for part in parts:
+                    if part.startswith('User:'):
+                        content = part.replace('User:', '').strip()
+                        if content:
+                            messages.append(HumanMessage(content=content))
+                    elif part.startswith('Assistant:'):
+                        content = part.replace('Assistant:', '').strip()
+                        if content:
+                            messages.append(AIMessage(content=content))
+        
+        # Messages are in reverse chronological order from Pinecone
+        # Reverse to get chronological order
+        messages.reverse()
+        
+        logger.info(f"Parsed {len(messages)} individual messages from {len(matches)} memory entries")
+        return messages
+        
+    except Exception as e:
+        logger.error(f"Error fetching conversation history: {e}", exc_info=True)
+        return []
+
 @tool
 async def search_visual_products(vector: list) -> str:
     """

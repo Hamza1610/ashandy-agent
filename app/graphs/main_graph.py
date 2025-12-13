@@ -3,7 +3,7 @@ Main LangGraph workflow for the Awelewa agent system.
 This is the clean, modular implementation replacing main_workflow.py
 """
 from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.prebuilt import ToolNode  # For automatic tool execution
 from app.state.agent_state import AgentState
 from app.agents.router_agent import router_agent_node
@@ -133,9 +133,22 @@ async def intent_detection_node(state: AgentState):
         print(f">>> INTENT DETECTION: ✓ Preserving order_intent=True")
         return {"order_intent": True}
     
-    # FALLBACK: Check user keywords
+    # SECOND: Check if request_payment_link tool was called
     messages = state.get("messages", [])
+    for msg in reversed(messages):
+        if isinstance(msg, ToolMessage):
+            # Check if this is a payment link request
+            if "payment link requested" in msg.content.lower() or "request_payment_link" in str(msg):
+                print(f">>> INTENT DETECTION: ✓ Found request_payment_link tool call")
+                return {"order_intent": True}
+        # Check if AI message has tool calls for payment
+        if isinstance(msg, AIMessage) and hasattr(msg, 'tool_calls') and msg.tool_calls:
+            for tc in msg.tool_calls:
+                if tc.get('name') == 'request_payment_link':
+                    print(f">>> INTENT DETECTION: ✓ Found request_payment_link in tool_calls")
+                    return {"order_intent": True}
     
+    # FALLBACK: Check user keywords
     # Get the last USER message only
     last_user = ""
     for msg in reversed(messages):
@@ -149,21 +162,15 @@ async def intent_detection_node(state: AgentState):
     
     user_text_lower = last_user.lower()
     
-    # Keywords that indicate user wants to purchase
-    purchase_intent_keywords = [
-        "buy", "order", "pay", "purchase", "checkout",
-        "i want to buy", "i'll take it", "i'll buy",
-        "proceed", "confirm order", "make payment",
-       "yes please", "yes i want"
-    ]
+    # NO KEYWORD FALLBACK!
+    # Trust the sales agent's intelligence - if it didn't call request_payment_link,
+    # then there's no payment intent. This prevents false positives like
+    # "I paid already" triggering payment flow.
     
-    # Check if user's message contains purchase intent
-    intent = any(keyword in user_text_lower for keyword in purchase_intent_keywords)
+    print(f">>> INTENT DETECTION: No payment tool call found → order_intent=False")
+    logger.info(f"Intent detection: No request_payment_link tool - no order intent")
     
-    print(f">>> INTENT DETECTION: Keyword check = {intent}")
-    logger.info(f"Intent detection: last_user='{last_user[:50]}...' → order_intent={intent}")
-    
-    return {"order_intent": intent}
+    return {"order_intent": False}
 
 
 async def sentiment_node(state: AgentState):
@@ -432,8 +439,29 @@ workflow.add_edge("safety_log", END)
 workflow.add_edge("admin", "admin_update")
 workflow.add_edge("admin_update", "response")
 
-# Compile with memory
-memory_saver = MemorySaver()
-app = workflow.compile(checkpointer=memory_saver)
+# ========== COMPILE GRAPH ==========
+# 
+# NOTE: PostgreSQL checkpointing temporarily disabled due to async incompatibility
+# PostgresSaver doesn't support async operations (aget_tuple raises NotImplementedError)
+# Our FastAPI app uses ainvoke (async) which requires async checkpointer
+# 
+# TODO: Research solutions:
+# 1. Find async-compatible PostgreSQL checkpointer
+# 2. Use aiosqlite or another async DB
+# 3. Use custom async wrapper around PostgresSaver
+# 4. Switch to sync invoke (not recommended for production)
+#
+# For now: System works WITHOUT conversation persistence
+# Each webhook call starts fresh (no history)
 
-logger.info("✅ Clean LangGraph workflow compiled successfully")
+print("\n=== Compiling LangGraph (Persistence Disabled) ===")
+print("[INFO] Checkpointing disabled temporarily due to async compatibility")
+print("[INFO] Each message will start with fresh state\n")
+
+app = workflow.compile()  # No checkpointer
+
+logger.info("[SUCCESS] Clean LangGraph workflow compiled successfully")
+
+
+
+

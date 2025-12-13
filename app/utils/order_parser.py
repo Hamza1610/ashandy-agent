@@ -222,8 +222,8 @@ def extract_customer_email(messages: list, state: dict) -> Optional[str]:
     # Email regex pattern
     email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
     
-    # Search recent messages (last 10) for email - focusing on HumanMessages
-    recent_messages = messages[-10:] if len(messages) > 10 else messages
+    # Search recent messages (last 30) for email - focusing on HumanMessages
+    recent_messages = messages[-30:] if len(messages) > 30 else messages
     print(f">>> EMAIL PARSER: Checking last {len(recent_messages)} messages")
     
     for i, msg in enumerate(reversed(recent_messages)):

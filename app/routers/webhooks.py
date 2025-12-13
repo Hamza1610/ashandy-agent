@@ -58,23 +58,59 @@ async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
             return {"status": "no_messages"}
 
         message = messages[0]
-        from_phone = message.get("from") # The user's phone number
+        from_phone = message.from_  # The user's phone number (underscore because 'from' is Python keyword)
         
+        # Extract customer info from contacts metadata
+        customer_email = None
+        customer_name = None
+        
+        contacts = value.contacts
+        if contacts and len(contacts) > 0:
+            contact = contacts[0]  # Now properly typed as WhatsAppContact!
+            # Access using Pydantic model attributes
+            if contact.profile:
+                customer_name = contact.profile.name
+            customer_email = contact.email  # Direct attribute access
+            
+        print(f"\n>>> WEBHOOK: Customer Info from Metadata")
+        print(f">>> Phone: {from_phone}")
+        print(f">>> Name: {customer_name or 'Not provided'}")
+        print(f">>> Email: {customer_email or 'Not provided'}")        
         # Extract message content
         content = ""
         msg_type = message.type
         
         user_message_content = ""
         image_url = None
-        if msg_type == "text":
-            text_obj = message.get("text", {})
-            user_message_content = text_obj.get("body", "")
-        elif msg_type == "image":
-            # Handle Image
-            img_obj = message.get("image", {})
-            media_id = img_obj.get("id")
-            caption = img_obj.get("caption", "")
-            user_message_content = caption # Use caption as text context
+        
+        print(f"\n>>> MESSAGE EXTRACTION DEBUG:")
+        print(f">>> msg_type = {msg_type}")
+        print(f">>> message object type = {type(message).__name__}")
+        print(f">>> message.text = {message.text}")
+        print(f">>> message.image = {message.image}")
+        
+        # Check for text content first (type field is unreliable)
+        if message.text:
+            text_obj = message.text
+            print(f">>> text_obj = {text_obj}")
+            print(f">>> text_obj type = {type(text_obj).__name__}")
+            
+            if hasattr(text_obj, 'body'):
+                user_message_content = text_obj.body
+                print(f">>> Extracted body = '{user_message_content}'")
+            else:
+                print(f">>> ERROR: text_obj has no body attribute")
+                user_message_content = ""
+                
+        # Check for image content
+        elif message.image:
+            img_obj = message.image
+            print(f">>> img_obj = {img_obj}")
+            
+            media_id = img_obj.id
+            caption = img_obj.caption or ""
+            user_message_content = caption
+            print(f">>> Image caption = '{caption}'")
             
             # Resolve URL
             fetched_url = await meta_service.get_media_url(media_id)
@@ -85,6 +121,7 @@ async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
         else:
             logger.warning(f"⚠️ Cannot extract message. Type: {msg_type}, Has text: {hasattr(message, 'text')}, Has image: {hasattr(message, 'image')}")
             
+        print(f">>> FINAL user_message_content = '{user_message_content}' (length: {len(user_message_content)})")
         logger.info(f"📝 Final user_message_content: '{user_message_content}' (length: {len(user_message_content)})")
             
         # Construct Input State
@@ -105,9 +142,20 @@ async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
         
         logger.info(f"Webhook: HumanMessage created. Content type: {type(human_msg.content).__name__}, Content: '{str(human_msg.content)[:100] if human_msg.content else 'EMPTY'}'")
         
+        # Load full conversation history from Pinecone for context
+        print(f"\n>>> LOADING CONVERSATION HISTORY FROM PINECONE <<<")
+        from app.tools.vector_tools import get_full_conversation_history
+        
+        history_messages = await get_full_conversation_history(from_phone, max_messages=100)
+        print(f">>> Found {len(history_messages)} previous messages")
+        
+        # Combine history + new message
+        all_messages = history_messages + [human_msg]
+        print(f">>> Total context: {len(all_messages)} messages (history + current)")
+        
         # Construct Input State with ALL required fields
         input_state = {
-            "messages": [human_msg],
+            "messages": all_messages,  # FULL CONVERSATION CONTEXT!
             "user_id": from_phone,
             "session_id": from_phone,
             "platform": "whatsapp",
@@ -116,13 +164,18 @@ async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
             "order_intent": False,
             "requires_handoff": False,
             "query_type": "text",
-            "last_user_message": user_message_content
+            "last_user_message": user_message_content,
+            # FIXED CONTEXT: Customer info from WhatsApp
+            "customer_email": customer_email,  # From contacts metadata
+            "customer_name": customer_name,    # From contacts metadata
+            "user_name": customer_name or "Customer",  # Fallback for compatibility
         }
         
         # Invoke Graph
         print("\n>>> ABOUT TO INVOKE GRAPH <<<")
         print(f">>> User: {from_phone}")
         print(f">>> Input state keys: {list(input_state.keys())}")
+        print(f">>> Messages in context: {len(all_messages)}")
         
         final_state = await agent_app.ainvoke(input_state, config={"configurable": {"thread_id": from_phone}})
         
@@ -211,7 +264,11 @@ async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
         }
             
     except Exception as e:
-        logger.error(f"WhatsApp processing error: {e}")
+        logger.error(f"WhatsApp processing error: {str(e)}")
+        # Add detailed traceback for debugging
+        import traceback
+        traceback.print_exc()
+        logger.error(f"Full traceback: {traceback.format_exc()}")
         return {"status": "error", "message": str(e)}
 
 # Instagram Webhook

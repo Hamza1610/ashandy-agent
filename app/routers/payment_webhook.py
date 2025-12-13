@@ -4,8 +4,11 @@ Receives payment confirmation from Paystack and triggers delivery flow
 """
 from fastapi import APIRouter, Request, HTTPException, Header
 from app.services.paystack_service import paystack_service
+from app.services.order_service import update_order_status, get_order_by_reference  # NEW
 from app.agents.delivery_agent import delivery_agent_node
 from app.state.agent_state import AgentState
+from app.utils.order_parser import format_items_summary  # NEW
+from datetime import datetime
 import logging
 import hmac
 import hashlib
@@ -79,27 +82,72 @@ async def paystack_webhook(
             print(f">>>   Amount: ₦{amount:,.2f}")
             print(f">>>   Email: {customer_email}")
             
-            # TODO: Update order status in database
-            # order = await update_order_status(reference, 'paid')
-            
-            # Trigger delivery notifications
-            # For now, we'll create a minimal state for delivery agent
-            # In production, fetch full order details from database
-            
-            delivery_state = {
-                "order_data": {
-                    "order_id": reference,
-                    "customer_email": customer_email,
-                    "customer_name": "Customer",
-                    "customer_phone": "Unknown",  # Get from DB in production
-                    "items_summary": "Order items",  # Get from DB
-                    "total_amount": f"₦{amount:,.0f}",
-                    "pickup_location": "Ashandy Store, Ibadan",
-                    "delivery_address": "To be confirmed",  # Get from DB
-                    "rider_phone": None,
-                    "manager_phone": None
+            # Step 1: Update order status in database
+            print(f"\n>>> WEBHOOK: Updating order status to 'paid'...")
+            try:
+                order = await update_order_status(
+                    reference=reference,
+                    payment_status='paid',
+                    paid_at=datetime.utcnow()
+                )
+                
+                if not order:
+                    logger.warning(f"Order not found for reference: {reference}")
+                    print(f">>> WEBHOOK WARNING: Order not found in database")
+                    # Create minimal delivery state if order not in DB
+                    delivery_state = {
+                        "order_data": {
+                            "order_id": reference,
+                            "customer_email": customer_email,
+                            "customer_name": "Customer",
+                            "customer_phone": "Unknown",
+                            "items_summary": "Order items",
+                            "total_amount": f"₦{amount:,.0f}",
+                            "pickup_location": "Ashandy Store, Ibadan",
+                            "delivery_address": "To be confirmed",
+                            "rider_phone": None,
+                            "manager_phone": None
+                        }
+                    }
+                else:
+                    print(f">>> WEBHOOK: ✓ Order updated (ID: {order.order_id})")
+                    
+                    # Step 2: Prepare delivery state with full order details from DB
+                    delivery_state = {
+                        "order_data": {
+                            "order_id": reference,
+                            "db_order_id": str(order.order_id),
+                            "customer_email": order.customer_email,
+                            "customer_name": order.customer_name,
+                            "customer_phone": order.customer_phone,
+                            "items": order.items,
+                            "items_summary": format_items_summary(order.items),
+                            "total_amount": f"₦{order.total_amount:,.0f}",
+                            "pickup_location": order.pickup_location,
+                            "delivery_address": order.delivery_address,
+                            "rider_phone": order.rider_phone,
+                            "manager_phone": None
+                        }
+                    }
+                    
+            except Exception as e:
+                logger.error(f"Order update failed: {e}", exc_info=True)
+                print(f">>> WEBHOOK ERROR: Order update failed - {e}")
+                # Create minimal state as fallback
+                delivery_state = {
+                    "order_data": {
+                        "order_id": reference,
+                        "customer_email": customer_email,
+                        "customer_name": "Customer",
+                        "customer_phone": "Unknown",
+                        "items_summary": "Order items",
+                        "total_amount": f"₦{amount:,.0f}",
+                        "pickup_location": "Ashandy Store, Ibadan",
+                        "delivery_address": "To be confirmed",
+                        "rider_phone": None,
+                        "manager_phone": None
+                    }
                 }
-            }
             
             print(f"\n>>> WEBHOOK: Triggering delivery agent...")
             
