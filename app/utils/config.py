@@ -84,8 +84,10 @@ class Settings(BaseSettings):
     SHOP_ADDRESS: str = "Ashandy Home of Cosmetics, Shop 9 &10, Divine Favor plaza, Railway Shed, Iyaganku, Dugbe Rd, Ibadan South West 200263, Oyo"
     PHPPOS_BASE_URL: Optional[str] = "https://ashandy.storeapp.com.ng/phppos/index.php/api/v1"
 
-    # AI
-    LLAMA_API_KEY: Optional[str] = None
+    # AI - Primary and Fallback Providers
+    LLAMA_API_KEY: Optional[str] = None  # Groq (Primary)
+    TOGETHER_API_KEY: Optional[str] = None  # Together AI (Fallback 1)
+    OPENROUTER_API_KEY: Optional[str] = None  # OpenRouter (Fallback 2)
     LANGCHAIN_API_KEY: Optional[str] = None
     LANGCHAIN_PROJECT: str = "ashandy-agent"
     LANGCHAIN_TRACING_V2: str = "true"

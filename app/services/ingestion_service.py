@@ -1,4 +1,6 @@
-import asyncio
+"""
+Ingestion Service: Sync products from Instagram to Knowledge Graph.
+"""
 import logging
 from app.services.meta_service import meta_service
 from app.tools.instagram_tools import analyze_instagram_post
@@ -7,30 +9,23 @@ from app.utils.config import settings
 
 logger = logging.getLogger(__name__)
 
+
 class IngestionService:
-    def __init__(self):
-        # Local models removed. Relies entirely on MCP Knowledge Server.
-        pass
-
     async def sync_instagram_products(self, limit: int = 10) -> str:
-        """
-        Sync products from Instagram to Knowledge Graph (Pinecone).
-        """
+        """Sync products from Instagram to Pinecone Knowledge Graph."""
         if not settings.INSTAGRAM_INGESTION_ENABLED:
-             return "Instagram ingestion is disabled in settings."
+            return "Instagram ingestion is disabled."
 
-        logger.info("🚀 Starting Instagram Inventory Sync (MCP Mode)...")
+        logger.info("Starting Instagram Inventory Sync...")
         
         try:
-            # Lazy import MCP to avoid circular deps at startup if any
             from app.services.mcp_service import mcp_service
             
             posts = await meta_service.get_instagram_posts(limit=limit)
             if not posts:
-                return "No posts found or failed to fetch from Instagram."
+                return "No posts found."
             
-            logger.info(f"📥 Fetched {len(posts)} posts.")
-            
+            logger.info(f"Fetched {len(posts)} posts.")
             products_added = 0
             
             for post in posts:
@@ -44,7 +39,6 @@ class IngestionService:
                     if media_type == "VIDEO":
                         continue
 
-                    # Analyze
                     analysis = await analyze_instagram_post(media_url, caption)
                     if not analysis or not analysis.get("is_product"):
                         continue
@@ -53,56 +47,39 @@ class IngestionService:
                     p_price = analysis.get("price", 0)
                     p_desc = analysis.get("description", "")
                     
-                    # 1. Dupe Check via MCP (Text Search)
+                    # Duplicate check
                     dupe_check = await mcp_service.call_tool("knowledge", "search_memory", {"query": p_name})
-                    if dupe_check and "No matching products" not in dupe_check and p_name in dupe_check:
-                         # Very loose duplicate check string matching, but efficient enough for agent
-                         logger.info(f"Skipping likely duplicate: {p_name}")
-                         continue
+                    if dupe_check and "No matching" not in dupe_check and p_name in dupe_check:
+                        logger.info(f"Skipping duplicate: {p_name}")
+                        continue
 
-                    # 2. Upsert Text Product via MCP (Server handles embedding)
+                    # Upsert text product
                     await mcp_service.call_tool("knowledge", "upsert_product", {
-                        "name": p_name,
-                        "description": p_desc,
-                        "price": p_price,
-                        "source": "instagram",
-                        "image_url": media_url,
-                        "permalink": permalink,
-                        "item_id": post_id
+                        "name": p_name, "description": p_desc, "price": p_price,
+                        "source": "instagram", "image_url": media_url,
+                        "permalink": permalink, "item_id": post_id
                     })
 
-                    # 3. Visual Embedding (Client-side DINOv2 -> MCP Store)
-                    # We still do DINOv2 locally here via tool (since it uses HF API, not local model)
+                    # Visual embedding
                     visual_embedding = await process_image_for_search.ainvoke(media_url)
-                    
                     if visual_embedding:
-                        vec_id = f"ig_{post_id}"
-                        visual_metadata = {
-                            "name": p_name,
-                            "price": p_price,
-                            "description": p_desc,
-                            "source": "instagram",
-                            "image_url": media_url,
-                            "permalink": permalink,
-                            "item_id": post_id
-                        }
                         await mcp_service.call_tool("knowledge", "upsert_vector_data", {
                             "vector": visual_embedding,
-                            "metadata": visual_metadata,
-                            "id": vec_id
+                            "metadata": {"name": p_name, "price": p_price, "image_url": media_url, "item_id": post_id},
+                            "id": f"ig_{post_id}"
                         })
                     
                     products_added += 1
                     logger.info(f"Saved: {p_name}")
                     
-                except Exception as inner_e:
-                    logger.error(f"Error processing post {post.get('id')}: {inner_e}")
+                except Exception as e:
+                    logger.error(f"Error processing post {post.get('id')}: {e}")
                     
-            return f"Sync Complete. Added {products_added} new products."
+            return f"Sync Complete. Added {products_added} products."
             
         except Exception as e:
             logger.error(f"Sync failed: {e}")
             return f"Sync failed: {str(e)}"
 
-# Singleton
+
 ingestion_service = IngestionService()

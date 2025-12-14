@@ -123,3 +123,41 @@ CREATE TABLE IF NOT EXISTS incidents (
 
 CREATE INDEX IF NOT EXISTS idx_incidents_user ON incidents(user_id);
 CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status);
+
+-- ============================================================
+-- FEEDBACK LEARNING TABLES
+-- ============================================================
+
+-- Feedback Logs Table (User Reactions for Learning)
+CREATE TABLE IF NOT EXISTS feedback_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id VARCHAR(50) NOT NULL,
+    session_id VARCHAR(100),
+    message_id UUID REFERENCES message_logs(id),
+    feedback_type VARCHAR(20) NOT NULL CHECK (feedback_type IN ('positive', 'negative', 'neutral')),
+    feedback_signal VARCHAR(100),        -- The keyword/phrase that triggered detection
+    signal_strength VARCHAR(20),          -- 'high', 'medium', 'low'
+    context_topic VARCHAR(100),           -- What was discussed (product, delivery, etc)
+    previous_ai_response TEXT,            -- What the AI said that got this reaction
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_user ON feedback_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_type ON feedback_logs(feedback_type);
+CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback_logs(created_at);
+
+-- Learned Preferences Table (Aggregated Learning)
+CREATE TABLE IF NOT EXISTS learned_preferences (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    preference_type VARCHAR(50) NOT NULL, -- 'user', 'topic', 'global'
+    preference_key VARCHAR(100) NOT NULL, -- user_id, topic name, or 'default'
+    preference_data JSONB NOT NULL,       -- {style, tone, patterns, etc}
+    confidence FLOAT DEFAULT 0.5,
+    sample_count INT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(preference_type, preference_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_learned_prefs_type ON learned_preferences(preference_type);
+

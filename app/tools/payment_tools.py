@@ -1,41 +1,27 @@
 """
-Payment tools for Paystack integration.
-Includes delivery validation before payment link generation.
+Payment Tools: Paystack integration for payment link generation and verification.
 """
 from langchain_core.tools import tool
+from app.services.mcp_service import mcp_service
 import logging
 
 logger = logging.getLogger(__name__)
 
-# Fallback email for Paystack (same as in delivery_validation_tools)
 DEFAULT_EMAIL = "ashandyawelewa@gmail.com"
 
 
 @tool("generate_payment_link_tool")
-async def generate_payment_link(
-    amount: float, 
-    reference: str,
-    email: str = None,
-    delivery_details: dict = None
-) -> str:
+async def generate_payment_link(amount: float, reference: str, email: str = None, delivery_details: dict = None) -> str:
     """
-    Generate a Paystack payment link via MCP Payment Server.
-    
-    IMPORTANT: This tool requires delivery_details to be validated BEFORE calling.
-    If delivery details are missing, the tool will return an error asking for them.
+    Generate a Paystack payment link. Requires delivery_details for delivery orders.
     
     Args:
         amount: Total amount in Naira
         reference: Unique reference/user ID
-        email: Customer email (optional, defaults to ashandyawelewa@gmail.com)
-        delivery_details: Dict with name, phone, address (required for delivery orders)
-    
-    Returns:
-        Payment link or error message
+        email: Customer email (defaults to ashandyawelewa@gmail.com)
+        delivery_details: Dict with name, phone, address
     """
-    from app.services.mcp_service import mcp_service
-    
-    # Validate delivery details if provided
+    # Validate delivery details
     if delivery_details:
         missing = []
         if not delivery_details.get('name'):
@@ -46,13 +32,10 @@ async def generate_payment_link(
             missing.append('delivery address')
         
         if missing:
-            logger.warning(f"Missing delivery details: {missing}")
-            return f"❌ Cannot generate payment link. Missing: {', '.join(missing)}.\n\nPlease ask the customer to provide their:\n• Full Name\n• Phone Number\n• Delivery Address"
+            return f"❌ Cannot generate payment. Missing: {', '.join(missing)}.\n\nPlease provide: Full Name, Phone, Address."
     
-    # Use fallback email if not provided
     final_email = email if (email and '@' in email) else DEFAULT_EMAIL
-    
-    logger.info(f"Generating payment link via MCP: amount={amount}, ref={reference}, email={final_email}")
+    logger.info(f"Generating payment link: amount={amount}, ref={reference}")
     
     result = await mcp_service.call_tool("payment", "initialize_payment", {
         "email": final_email,
@@ -60,13 +43,11 @@ async def generate_payment_link(
         "user_id": reference
     })
     
-    # MCP returns "SUCCESS|URL|REF" or "Error:..."
     if result.startswith("SUCCESS"):
         parts = result.split("|")
         payment_url = parts[1]
         actual_ref = parts[2] if len(parts) > 2 else reference
         
-        # Include delivery confirmation in response
         delivery_msg = ""
         if delivery_details:
             delivery_msg = f"\n\n📦 *Delivery To:*\n{delivery_details.get('name', 'N/A')}\n{delivery_details.get('address', 'N/A')}\n📞 {delivery_details.get('phone', 'N/A')}"
@@ -86,12 +67,6 @@ Once paid, we'll confirm and process your delivery!"""
 
 @tool("verify_payment_tool")
 async def verify_payment(reference: str) -> str:
-    """
-    Verify a payment transaction status via MCP Payment Server.
-    """
-    logger.info(f"Verifying payment via MCP: {reference}")
-    from app.services.mcp_service import mcp_service
-
-    result = await mcp_service.call_tool("payment", "verify_payment", {"reference": reference})
-    return result
-
+    """Verify a payment transaction status."""
+    logger.info(f"Verifying payment: {reference}")
+    return await mcp_service.call_tool("payment", "verify_payment", {"reference": reference})

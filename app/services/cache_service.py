@@ -1,9 +1,13 @@
+"""
+Cache Service: Redis caching with JSON serialization.
+"""
 import redis.asyncio as redis
 from app.utils.config import settings
 import logging
 import json
 
 logger = logging.getLogger(__name__)
+
 
 class CacheService:
     def __init__(self):
@@ -17,45 +21,39 @@ class CacheService:
         self.redis = None
 
     async def connect(self):
-         if not self.redis:
-            url = None
-            if self.redis_url:
-                url = self.redis_url
-                if not url.startswith("redis://") and not url.startswith("rediss://"):
-                    url = f"redis://{url}"
-            else:
-                # Build URL from components, prefer TLS if port suggests TLS? (user can still force via REDIS_URL)
-                url = f"redis://{self.host}:{self.port}/{self.db}"
-            # Inject credentials if provided and not already present
+        if not self.redis:
+            url = self.redis_url or f"redis://{self.host}:{self.port}/{self.db}"
+            if not url.startswith(("redis://", "rediss://")):
+                url = f"redis://{url}"
+            
             if "@" not in url and (self.user or self.pwd):
-                prefix = "redis://"
-                if url.startswith("rediss://"):
-                    prefix = "rediss://"
-                    host_part = url[len("rediss://"):]
-                else:
-                    host_part = url[len("redis://"):]
-                user = self.user or "default"
-                pwd = self.pwd or ""
-                url = f"{prefix}{user}:{pwd}@{host_part}"
+                prefix = "rediss://" if url.startswith("rediss://") else "redis://"
+                host_part = url[len(prefix):]
+                url = f"{prefix}{self.user or 'default'}:{self.pwd or ''}@{host_part}"
+            
             self.redis = redis.from_url(url, encoding="utf-8", decode_responses=True)
 
-    async def get_json(self, key: str):
+    async def get(self, key: str):
         await self.connect()
         try:
-            data = await self.redis.get(key)
-            if data:
-                return json.loads(data)
-            return None
+            return await self.redis.get(key)
         except Exception as e:
             logger.error(f"Redis get error: {e}")
             return None
 
-    async def set_json(self, key: str, value: dict, ttl: int = None):
+    async def set(self, key: str, value: str, expire: int = None):
         await self.connect()
         try:
-            await self.redis.set(key, json.dumps(value), ex=ttl or self.ttl)
+            await self.redis.set(key, value, ex=expire or self.ttl)
         except Exception as e:
-             logger.error(f"Redis set error: {e}")
+            logger.error(f"Redis set error: {e}")
+
+    async def get_json(self, key: str):
+        data = await self.get(key)
+        return json.loads(data) if data else None
+
+    async def set_json(self, key: str, value: dict, ttl: int = None):
+        await self.set(key, json.dumps(value), expire=ttl)
 
     async def delete(self, key: str):
         await self.connect()
@@ -63,12 +61,13 @@ class CacheService:
             await self.redis.delete(key)
         except Exception as e:
             logger.error(f"Redis delete error: {e}")
-    
+
     async def flush(self):
         await self.connect()
         try:
             await self.redis.flushdb()
         except Exception as e:
             logger.error(f"Redis flush error: {e}")
+
 
 cache_service = CacheService()

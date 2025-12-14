@@ -81,6 +81,35 @@ async def save_interaction(user_id: str, text: str) -> str:
     """
     return store.save_interaction(user_id, text)
 
+
+# ========== RESPONSE CACHE TOOLS ==========
+
+@mcp.tool()
+async def get_text_embedding(text: str) -> list:
+    """
+    Generate a 384-dimension text embedding for semantic similarity.
+    """
+    return store.get_text_embedding(text)
+
+
+@mcp.tool()
+async def search_response_cache(vector: list, threshold: float = 0.92, top_k: int = 1) -> list:
+    """
+    Search cached responses by vector similarity.
+    Returns list of matches with score and metadata.
+    """
+    return store.search_response_cache(vector, threshold, top_k)
+
+
+@mcp.tool()
+async def upsert_response_cache(id: str, vector: list, metadata: dict) -> str:
+    """
+    Store a response in the semantic cache.
+    Metadata should include: query, response, topic, cached_at.
+    """
+    return store.upsert_response_cache(id, vector, metadata)
+
+
 import os
 import httpx
 import base64

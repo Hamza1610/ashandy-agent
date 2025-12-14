@@ -100,9 +100,11 @@ Simple, specialized agents that "do as they are told".
 Ensure these variables are set in your `.env` file:
 
 ```ini
-# --- LLM & AI ---
-GROQ_API_KEY=gsk_...
-HF_TOKEN=hf_...                         # HuggingFace (for Embeddings)
+# --- LLM & AI (Multi-Provider Failover) ---
+LLAMA_API_KEY=gsk_...                   # Groq (Primary)
+TOGETHER_API_KEY=...                     # Together AI (Fallback 1) - Optional
+OPENROUTER_API_KEY=...                   # OpenRouter (Fallback 2) - Optional
+HUGGINGFACE_API_KEY=hf_...               # HuggingFace (for DINOv2 embeddings)
 
 # --- DATABASE ---
 DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/ashandy
@@ -116,7 +118,7 @@ META_WHATSAPP_TOKEN=EAAG...
 META_WHATSAPP_PHONE_ID=324...
 META_INSTAGRAM_TOKEN=IGQ...
 META_INSTAGRAM_ACCOUNT_ID=178...
-VERIFY_TOKEN=ashandy_verification_token # For Webhook handshake
+META_VERIFY_TOKEN=ashandy_verification_token  # For Webhook handshake
 
 # --- PAYMENTS & LOGISTICS ---
 PAYSTACK_SECRET_KEY=sk_test_...
@@ -127,6 +129,8 @@ TWILIO_PHONE_NUMBER=+1...
 # --- ADMIN ---
 ADMIN_PHONE_NUMBERS=["+23480...", "+23490..."]
 ```
+
+> **💡 LLM Failover:** The system automatically falls back to Together AI → OpenRouter if Groq is unavailable. Check provider health at `/health/llm`.
 
 ---
 
