@@ -2,6 +2,7 @@ from app.state.agent_state import AgentState
 from app.tools.product_tools import search_products, check_product_stock
 from app.tools.vector_tools import save_user_interaction, search_text_products, retrieve_user_memory
 from app.tools.visual_tools import process_image_for_search, detect_product_from_image
+from app.services.policy_service import get_policy_for_query
 from langchain_groq import ChatGroq
 from app.utils.config import settings
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
@@ -12,6 +13,8 @@ logger = logging.getLogger(__name__)
 async def sales_worker_node(state: AgentState):
     """
     Sales Worker: The Execution Arm.
+    
+    Uses policy_service for dynamic policy retrieval based on customer query.
     """
     try:
         user_id = state.get("user_id")
@@ -38,11 +41,12 @@ async def sales_worker_node(state: AgentState):
         
         # Fallback: If Dispatcher sent us here but status state is lost (Empty Statuses), 
         # assume the first task for this worker is the one.
-             for step in plan:
-                 if step.get("worker") == "sales_worker":
-                     current_step = step
-                     logger.info(f"Using Fail-Safe: Recovered Task {step.get('id')} from plan.")
-                     break
+        if not current_step:
+            for step in plan:
+                if step.get("worker") == "sales_worker":
+                    current_step = step
+                    logger.info(f"Using Fail-Safe: Recovered Task {step.get('id')} from plan.")
+                    break
 
         if not current_step:
             # DEBUG: Expose state details in the response to diagnose routing issue
@@ -68,6 +72,20 @@ async def sales_worker_node(state: AgentState):
         if state.get("visual_matches"):
              visual_info_block += f"\n[Previous Analysis]: {state.get('visual_matches')}"
 
+        # Get last user message for policy retrieval
+        last_user_msg = state.get("last_user_message", "")
+        if not last_user_msg and messages:
+            for msg in reversed(messages):
+                if hasattr(msg, 'content') and type(msg).__name__ == "HumanMessage":
+                    last_user_msg = msg.content
+                    break
+        
+        # Get relevant policies based on user's query
+        policy_context = get_policy_for_query(last_user_msg + " " + task_desc)
+        policy_block = ""
+        if policy_context:
+            policy_block = f"\n### RELEVANT POLICIES\n{policy_context}\n"
+
         # Setup Tools
         # Added retrieve_user_memory so the worker can fetch context if requested by Planner
         tools = [search_products, check_product_stock, save_user_interaction, detect_product_from_image, retrieve_user_memory]
@@ -78,55 +96,38 @@ async def sales_worker_node(state: AgentState):
             model_name="meta-llama/llama-4-scout-17b-16e-instruct"
         ).bind_tools(tools)
         
-        # System Prompt - Simple & Focused
-        system_prompt = f"""You are 'Awéléwà', the dedicated AI Sales & CRM Manager for Ashandy Cosmetics. To customers, you are their Sales Assistant and Customer Support. 
+        # System Prompt - Streamlined with RAG Policy Injection
+        system_prompt = f"""You are 'Awéléwà', the dedicated AI Sales & CRM Manager for Ashandy Cosmetics.
 
-### YOUR DUAL ROLE
-1. **CRM Manager:** You build relationships. Remember customers, greet them warmly, and make them feel valued.
-2. **Enterprising Salesperson:** You are marketing-savvy. Use persuasive language to sell available products.
+### YOUR ROLE
+1. **CRM Manager:** Build relationships. Greet warmly and make customers feel valued.
+2. **Salesperson:** Use persuasive language to sell available products.
 
-### WHATSAPP FORMATTING (IMPORTANT)
-Format responses for easy reading:
-- Use *bold* for product names: *Product Name*
-- Responses should be in a single message. The only exception is when it is absolutely necessary to add one more sentence for excellence.
+### FORMATTING (WhatsApp)
+- Use *bold* for product names
+- Keep responses in a single message
 - Add emojis sparingly: ✨ 💄 🛍️
-- Always end with a clear call-to-action
+- End with a clear call-to-action
 
-### STRICTLY NO CONSULTATIONS (Redirect Policy)
-You are a Sales Manager, not a Dermatologist.
-If user asks for skin analysis or medical advice, say:
-"For proper skin consultation, please visit our physical store. However, if you know what you want to buy, I can help immediately!"
-
-### Inventory Truth & Alternatives
-- Only sell what is in 'Inventory Data'.
-- If a requested product is missing, you may suggest a **High-Level Alternative** ONLY based on product category (e.g., "We have another Toner"), NOT based on a medical cure.
-- *Correct Upsell:* "We don't have Brand X, but our Brand Y Toner is very popular."
-- *Incorrect Upsell (Forbidden):* "We don't have Brand X, but Brand Y will cure your acne."
-
+### CORE RULES
+- Only sell products from our inventory (use tools to search)
+- NO medical diagnosis or prescriptions - redirect to physical store
+- Suggest alternatives for unavailable products (by category, not medical claims)
+{policy_block}
 ### YOUR CURRENT TASK
 "{task_desc}"
 
-### YOUR GOAL
-Execute this task using tools if needed, or reply to the user.
-Do not worry about overall flow (payments, approvals), just do this task.
-Be warm, professional, and concise.
-
-**Context:**
+### CONTEXT
 User ID: {user_id}
 {visual_info_block}
 
-**Output:**
-If you use a tool, the system will handle execution. 
-If you simply reply, that is the result.
-
-**Style Rules:**
-- Do NOT greet the user again if you have already greeted them.
-- Be conversational but efficient.
-- **POLICY:** You CAN recommend products and explain their benefits/ingredients (Sales Advice).
-- **CRITICAL:** Do NOT diagnose skin conditions or prescribe treatments based on symptoms (Medical Consultation). If a user asks for a diagnosis, refer them to the shop manager.
+### OUTPUT
+Execute the task using tools if needed, or reply directly.
+Be warm, professional, and concise. Do not repeat greetings.
 """
         # We pass the full history so the worker has context, but emphasize the CURRENT TASK
         conversation = [SystemMessage(content=system_prompt)] + messages[-5:]
+
         
         response = await llm.ainvoke(conversation)
         

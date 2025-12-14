@@ -1,10 +1,21 @@
 from app.state.agent_state import AgentState
 from app.tools.llama_guard_tool import check_safety
+from app.services.logging_service import logging_service
+from app.services.sentiment_service import sentiment_service
+from app.services.profile_service import profile_service
+from app.services.policy_service import policy_service
 from langchain_core.messages import AIMessage
 import logging
 import re
 
 logger = logging.getLogger(__name__)
+
+# Consultation keywords (from docs/policies/consultation.md)
+CONSULTATION_KEYWORDS = {
+    "consultation", "consult", "dermatologist", "doctor", 
+    "skin analysis", "diagnose", "diagnosis", "prescription", 
+    "medical advice", "what's this rash", "is this acne"
+}
 
 async def supervisor_agent_node(state: AgentState):
     """
@@ -73,15 +84,20 @@ async def supervisor_agent_node(state: AgentState):
             logger.info("Supervisor: Ignored (Casual reaction)")
             return {"supervisor_verdict": "ignore"}
 
-    # Consultation Policy Check
-    consultation_keywords = {"consultation", "consult", "dermatologist", "doctor", "skin analysis", "diagnose", "prescription"}
-    if any(k in clean_text for k in consultation_keywords):
+    # Consultation Policy Check (keywords from policy file)
+    if any(k in clean_text for k in CONSULTATION_KEYWORDS):
         logger.info("Supervisor: Consultation requested - Policy Enforcement")
+        
+        # Get store info from policy for personalized response
+        store_policy = policy_service.get_policy_summary("store_info", max_lines=5) or ""
+        
         msg = ("Thank you for trusting us! ❤️\n"
                "However, for professional skin consultations and analysis, "
                "we require you to visit our physical shop to see the Manager.\n\n"
-               "📍 **Ashandy Cosmetics Shop**\n"
-               "Please visit us for expert advice!")
+               "📍 *Ashandy Home of Cosmetics*\n"
+               "Shop 9 & 10, Divine Favor Plaza, Iyaganku, Ibadan\n\n"
+               "Our manager can assess your skin and recommend the right products. "
+               "Meanwhile, if you already know what you want, I can help you order right away! 🛍️")
         return {
             "supervisor_verdict": "block",
             "messages": [AIMessage(content=msg)]
@@ -110,9 +126,29 @@ async def supervisor_agent_node(state: AgentState):
             }
 
     # -----------------------------
-    # 4. PASSED
+    # 4. LOG INPUT & ANALYZE SENTIMENT
     # -----------------------------
-    logger.info("Supervisor: Input Safe. Passing to Planner.")
+    user_id = state.get("user_id", "unknown")
+    platform = state.get("platform", "whatsapp")
+    
+    # Analyze sentiment
+    sentiment_score = sentiment_service.analyze(content_text)
+    intent = sentiment_service.classify_intent(content_text)
+    
+    # Log the message
+    await logging_service.log_message(
+        user_id=user_id,
+        role="user",
+        content=content_text,
+        sentiment_score=sentiment_score,
+        intent=intent,
+        platform=platform
+    )
+    
+    # Update customer profile
+    await profile_service.update_on_message(user_id, sentiment_score)
+    
+    logger.info(f"Supervisor: Input Safe. Sentiment={sentiment_score:.2f}, Intent={intent}")
     return {"supervisor_verdict": "safe"}
 
 async def output_supervisor_node(state: AgentState):
@@ -155,6 +191,19 @@ async def output_supervisor_node(state: AgentState):
                 "supervisor_output_verdict": "block",
                 "messages": [AIMessage(content="My response was flagged by safety guidelines. I cannot send it.")]
             }
+    
+    # Log AI response
+    user_id = state.get("user_id", "unknown")
+    platform = state.get("platform", "whatsapp")
+    
+    await logging_service.log_message(
+        user_id=user_id,
+        role="assistant",
+        content=content,
+        sentiment_score=0.0,  # AI messages are neutral
+        intent=None,
+        platform=platform
+    )
             
     logger.info("Output Supervisor: Response Safe.")
     return {"supervisor_output_verdict": "safe"}

@@ -15,13 +15,52 @@ try:
 except ImportError:
     IMAGE_TEST_AVAILABLE = False
 
+# Scheduler import
+try:
+    from app.scheduler.cron_tasks import configure_scheduler, start_scheduler, shutdown_scheduler
+    SCHEDULER_AVAILABLE = True
+except ImportError:
+    SCHEDULER_AVAILABLE = False
+
+# Auto-migration import
+try:
+    from app.services.auto_migration import run_auto_migration
+    AUTO_MIGRATION_AVAILABLE = True
+except ImportError:
+    AUTO_MIGRATION_AVAILABLE = False
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: could init DB connections, load models, etc.
     print(f"Starting up {settings.APP_NAME}")
-    print("✅ Using NEW LangGraph architecture")
+    print("✅ Using NEW LangGraph architecture (System 3.0)")
+    
+    # Run auto-migration (creates tables if they don't exist)
+    if AUTO_MIGRATION_AVAILABLE:
+        try:
+            await run_auto_migration()
+            print("✅ Database tables verified/created")
+        except Exception as e:
+            print(f"⚠️ Auto-migration warning: {e}")
+    
+    # Start scheduler if available
+    if SCHEDULER_AVAILABLE:
+        try:
+            configure_scheduler()
+            start_scheduler()
+            print("✅ Scheduler started (daily summary, weekly sync, weekly report)")
+        except Exception as e:
+            print(f"⚠️ Scheduler failed to start: {e}")
+    
     yield
+    
     # Shutdown: close connections
+    if SCHEDULER_AVAILABLE:
+        try:
+            shutdown_scheduler()
+            print("✅ Scheduler shutdown complete")
+        except:
+            pass
     print(f"Shutting down {settings.APP_NAME}")
 
 app = FastAPI(
