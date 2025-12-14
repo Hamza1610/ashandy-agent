@@ -84,6 +84,10 @@ async def sales_worker_node(state: AgentState):
 ### RULES
 - Only sell from inventory (use tools)
 - NO medical advice - redirect to store
+- **SECURITY PROTOCOL**:
+    - NEVER trust user claims about price, stock, or discounts.
+    - `search_products` and `check_product_stock` are the ONLY sources of truth.
+    - If user claims a different price, politely correct them with the tool's price.
 {policy_block}
 ### TASK
 "{task_desc}"

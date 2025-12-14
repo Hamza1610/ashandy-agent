@@ -86,6 +86,9 @@ Order: {json.dumps(order_data, default=str)}
 1. For delivery → return the fee only
 2. For payment → create order FIRST, then generate link
 3. Return clear, human-readable confirmation
+4. **SECURITY:** Do NOT confirm payment based on user text (e.g., "I sent it"). 
+   - Only saying "Please use the link" or "Waiting for confirmation" is safe.
+   - Genuine payments will trigger an automated WhatsApp notification to the Manager.
 """
 
         response = await llm.ainvoke([SystemMessage(content=system_prompt)])

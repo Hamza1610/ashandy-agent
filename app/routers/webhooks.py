@@ -230,6 +230,18 @@ async def receive_paystack_webhook(request: Request):
                 await meta_service.send_whatsapp_text(manager_phone, msg)
                 logger.info(f"Admin notified of payment: {reference}")
                 
+            # Update local DB status to PAID (Source of Truth)
+            from app.services.db_service import AsyncSessionLocal
+            from sqlalchemy import text
+            
+            async with AsyncSessionLocal() as session:
+                await session.execute(
+                    text("UPDATE orders SET status = 'PAID' WHERE paystack_reference = :ref"),
+                    {"ref": reference}
+                )
+                await session.commit()
+                logger.info(f"Order {reference} marked as PAID in DB.")
+                
         return {"status": "processed"}
         
     except Exception as e:

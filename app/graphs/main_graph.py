@@ -10,6 +10,7 @@ from app.agents.sales_worker import sales_worker_node
 from app.agents.admin_worker import admin_worker_node, admin_email_alert_node
 from app.agents.payment_worker import payment_worker_node
 from app.agents.reviewer_agent import reviewer_agent_node
+from app.agents.conflict_resolver_agent import conflict_resolver_node
 from langchain_core.messages import AIMessage
 from functools import partial
 import logging
@@ -58,7 +59,8 @@ def dispatcher_edge(state: AgentState):
     
     if not next_workers:
         all_complete = all(task_statuses.get(s["id"]) in ["approved", "failed"] for s in plan)
-        return "output_supervisor" if all_complete else "end_fail"
+        # Gap 3 Fix: Route to conflict_resolver before output_supervisor
+        return "conflict_resolver" if all_complete else "end_fail"
             
     return next_workers
 
@@ -131,7 +133,7 @@ workflow.add_conditional_edges(
         "sales_worker": "sales_worker",
         "admin_worker": "admin_worker",
         "payment_worker": "payment_worker",
-        "output_supervisor": "output_supervisor",
+        "conflict_resolver": "conflict_resolver",
         "end_fail": "email_alert"
     }
 )
@@ -145,6 +147,10 @@ workflow.add_edge("payment_worker", "payment_reviewer")
 workflow.add_edge("sales_reviewer", "dispatcher")
 workflow.add_edge("admin_reviewer", "dispatcher")
 workflow.add_edge("payment_reviewer", "dispatcher")
+
+# Conflict Resolution (Gap 3 Fix)
+workflow.add_node("conflict_resolver", conflict_resolver_node)
+workflow.add_edge("conflict_resolver", "output_supervisor")
 
 # End nodes
 workflow.add_edge("email_alert", END)

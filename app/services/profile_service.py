@@ -14,23 +14,23 @@ class ProfileService:
     """Service for managing customer profiles and calculating retention scores."""
     
     async def get_or_create_profile(self, user_id: str) -> dict:
-        """Get existing profile or create a new one."""
+        """
+        Get existing profile or create a new one.
+        
+        Uses INSERT ON CONFLICT (upsert) pattern to prevent race conditions
+        when multiple workers try to create the same profile simultaneously.
+        """
         try:
             async with AsyncSessionLocal() as session:
-                query = text("SELECT * FROM customer_profiles WHERE user_id = :user_id")
-                result = await session.execute(query, {"user_id": user_id})
-                row = result.fetchone()
-                
-                if row:
-                    return dict(row._mapping)
-                
-                # Create new profile
-                insert_query = text("""
+                # Upsert pattern: atomic insert-or-get, prevents duplicate key errors
+                upsert_query = text("""
                     INSERT INTO customer_profiles (user_id, last_interaction)
                     VALUES (:user_id, NOW())
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        last_interaction = EXCLUDED.last_interaction
                     RETURNING *
                 """)
-                result = await session.execute(insert_query, {"user_id": user_id})
+                result = await session.execute(upsert_query, {"user_id": user_id})
                 await session.commit()
                 row = result.fetchone()
                 return dict(row._mapping) if row else {}
@@ -72,12 +72,20 @@ class ProfileService:
         amount: float,
         category: str = None
     ):
-        """Update profile when user makes a purchase."""
+        """
+        Update profile when user makes a purchase.
+        
+        Uses SELECT FOR UPDATE to prevent race conditions when multiple
+        purchases are processed in parallel for the same user.
+        """
         try:
             async with AsyncSessionLocal() as session:
-                # First, get current preferred_categories
+                # Acquire row lock before reading preferred_categories
+                # This prevents concurrent purchases from overwriting each other's category updates
                 get_query = text("""
-                    SELECT preferred_categories FROM customer_profiles WHERE user_id = :user_id
+                    SELECT preferred_categories FROM customer_profiles 
+                    WHERE user_id = :user_id
+                    FOR UPDATE
                 """)
                 result = await session.execute(get_query, {"user_id": user_id})
                 row = result.fetchone()
@@ -89,7 +97,7 @@ class ProfileService:
                 if category:
                     categories[category] = categories.get(category, 0) + 1
                 
-                # Update profile
+                # Update profile (row is still locked from SELECT FOR UPDATE)
                 query = text("""
                     INSERT INTO customer_profiles (user_id, total_purchases, order_count, preferred_categories, last_interaction)
                     VALUES (:user_id, :amount, 1, :categories, NOW())

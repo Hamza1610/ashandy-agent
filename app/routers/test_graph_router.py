@@ -31,7 +31,7 @@ class TestMessageResponse(BaseModel):
 async def test_graph_message(request: TestMessageRequest):
     """Test graph workflow. POST {"message": "Do you have lipstick?", "user_id": "test_123"}"""
     try:
-        from app.workflows.main_workflow import app as graph_app
+        from app.graphs.main_graph import app as graph_app
         from langchain_core.messages import HumanMessage
         
         logger.info(f"Test: {request.message}")
@@ -44,7 +44,11 @@ async def test_graph_message(request: TestMessageRequest):
             "is_admin": request.is_admin,
             "blocked": False,
             "order_intent": False,
-            "requires_handoff": False
+            "requires_handoff": False,
+            # Initialize empty structures to prevent KeyError in new nodes
+            "task_statuses": {},
+            "worker_outputs": {},
+            "retry_counts": {}
         }
         
         result = await graph_app.ainvoke(input_state, config={"configurable": {"thread_id": request.user_id}})
@@ -84,7 +88,7 @@ async def test_graph_message(request: TestMessageRequest):
 async def get_graph_info():
     """Get graph structure information."""
     try:
-        from app.workflows.main_workflow import app as graph_app
+        from app.graphs.main_graph import app as graph_app
         graph = graph_app.get_graph()
         nodes = list(graph.nodes.keys())
         return {"status": "ok", "graph_type": "LangGraph StateGraph", "node_count": len(nodes), "nodes": sorted(nodes)}

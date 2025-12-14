@@ -1,5 +1,8 @@
 """
 Approval Tools: High-value order approval workflow via WhatsApp.
+
+Uses atomic Redis hash operations to prevent race conditions when
+multiple workers access the approval waitlist concurrently.
 """
 from langchain.tools import tool
 from app.services.meta_service import meta_service
@@ -10,26 +13,34 @@ import json
 
 logger = logging.getLogger(__name__)
 
+WAITLIST_KEY = "approval_waitlist"
+
 
 async def get_waitlist() -> dict:
-    """Retrieves pending orders from Redis."""
-    raw = await cache_service.get("approval_waitlist")
-    return json.loads(raw) if raw else {}
+    """
+    Retrieves pending orders from Redis using atomic HGETALL.
+    Returns dict of {user_id: order_data}.
+    """
+    raw_dict = await cache_service.hgetall(WAITLIST_KEY)
+    return {k: json.loads(v) for k, v in raw_dict.items()} if raw_dict else {}
 
 
 async def add_to_waitlist(user_id: str, amount: float, items: str):
-    """Adds an order to the waitlist."""
-    waitlist = await get_waitlist()
-    waitlist[user_id] = {"amount": amount, "items": items, "timestamp": "now"}
-    await cache_service.set("approval_waitlist", json.dumps(waitlist), expire=86400)
+    """
+    Atomically adds an order to the waitlist using HSET.
+    Prevents race conditions where concurrent adds would lose data.
+    """
+    order_data = json.dumps({"amount": amount, "items": items, "timestamp": "now"})
+    await cache_service.hset(WAITLIST_KEY, user_id, order_data)
+    logger.info(f"Added {user_id} to approval waitlist (atomic)")
 
 
 async def remove_from_waitlist(user_id: str):
-    """Removes an order from the waitlist."""
-    waitlist = await get_waitlist()
-    if user_id in waitlist:
-        del waitlist[user_id]
-        await cache_service.set("approval_waitlist", json.dumps(waitlist), expire=86400)
+    """
+    Atomically removes an order from the waitlist using HDEL.
+    """
+    await cache_service.hdel(WAITLIST_KEY, user_id)
+    logger.info(f"Removed {user_id} from approval waitlist (atomic)")
 
 
 @tool

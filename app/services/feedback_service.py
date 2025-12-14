@@ -46,16 +46,19 @@ class FeedbackService:
     }
     
     async def _check_rate_limit(self, user_id: str) -> bool:
-        """Check if user has exceeded daily feedback limit. Returns True if allowed."""
+        """
+        Check if user has exceeded daily feedback limit.
+        Uses atomic Redis INCR to prevent race conditions.
+        """
         cache_key = f"feedback_limit:{user_id}:{datetime.now().strftime('%Y-%m-%d')}"
         try:
-            count = await cache_service.get(cache_key)
-            if count and int(count) >= self.MAX_FEEDBACK_PER_USER_PER_DAY:
-                logger.warning(f"Feedback rate limit exceeded for {user_id}")
-                return False
+            # Atomic increment - safe from race conditions
+            count = await cache_service.incr(cache_key, expire=86400)
             
-            new_count = (int(count) + 1) if count else 1
-            await cache_service.set(cache_key, str(new_count), expire=86400)
+            if count > self.MAX_FEEDBACK_PER_USER_PER_DAY:
+                logger.warning(f"Feedback rate limit exceeded for {user_id} (count: {count})")
+                return False
+                
             return True
         except Exception as e:
             logger.warning(f"Rate limit check failed, allowing: {e}")

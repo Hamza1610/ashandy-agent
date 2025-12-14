@@ -69,5 +69,60 @@ class CacheService:
         except Exception as e:
             logger.error(f"Redis flush error: {e}")
 
+    # ========== Atomic Operations (Gap 2 & 4 fixes) ==========
+
+    async def incr(self, key: str, expire: int = None) -> int:
+        """
+        Atomically increment a key. Returns the new value.
+        Used for rate limiting to prevent TOCTOU races.
+        """
+        await self.connect()
+        try:
+            value = await self.redis.incr(key)
+            if expire and value == 1:  # Set TTL only on first increment
+                await self.redis.expire(key, expire)
+            return value
+        except Exception as e:
+            logger.error(f"Redis incr error: {e}")
+            return 0
+
+    async def hset(self, name: str, key: str, value: str) -> bool:
+        """Atomically set a hash field. Used for approval waitlist."""
+        await self.connect()
+        try:
+            await self.redis.hset(name, key, value)
+            return True
+        except Exception as e:
+            logger.error(f"Redis hset error: {e}")
+            return False
+
+    async def hget(self, name: str, key: str) -> str:
+        """Get a hash field value."""
+        await self.connect()
+        try:
+            return await self.redis.hget(name, key)
+        except Exception as e:
+            logger.error(f"Redis hget error: {e}")
+            return None
+
+    async def hdel(self, name: str, key: str) -> bool:
+        """Atomically delete a hash field."""
+        await self.connect()
+        try:
+            await self.redis.hdel(name, key)
+            return True
+        except Exception as e:
+            logger.error(f"Redis hdel error: {e}")
+            return False
+
+    async def hgetall(self, name: str) -> dict:
+        """Get all fields in a hash."""
+        await self.connect()
+        try:
+            return await self.redis.hgetall(name)
+        except Exception as e:
+            logger.error(f"Redis hgetall error: {e}")
+            return {}
+
 
 cache_service = CacheService()

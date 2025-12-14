@@ -7,6 +7,8 @@ from contextlib import AsyncExitStack
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+import asyncio
+
 logger = logging.getLogger(__name__)
 
 
@@ -16,6 +18,13 @@ class MCPService:
     def __init__(self):
         self.sessions = {}
         self.exit_stack = AsyncExitStack()
+        # Locks to prevent concurrent connection attempts (Gap 6 Fix)
+        self._locks = {
+            "pos": asyncio.Lock(),
+            "payment": asyncio.Lock(),
+            "knowledge": asyncio.Lock(),
+            "logistics": asyncio.Lock()
+        }
 
     async def _connect_server(self, name: str, script_path: str):
         """Generic server connection method."""
@@ -53,18 +62,28 @@ class MCPService:
 
     async def call_tool(self, server_name: str, tool_name: str, arguments: dict):
         """Call a tool on a connected MCP server with lazy connection."""
-        session = self.sessions.get(server_name)
-        
-        if not session:
-            connect_map = {
-                "pos": self.connect_to_pos_server,
-                "payment": self.connect_to_payment_server,
-                "knowledge": self.connect_to_knowledge_server,
-                "logistics": self.connect_to_logistics_server,
-            }
-            connector = connect_map.get(server_name)
-            if connector:
-                session = await connector()
+        # Use specific lock for this server to prevent race conditions
+        lock = self._locks.get(server_name)
+        if not lock:
+             # Should not happen if initialized correctly
+             return f"Error: Unknown server '{server_name}'."
+
+        async with lock:
+            session = self.sessions.get(server_name)
+            
+            if not session:
+                connect_map = {
+                    "pos": self.connect_to_pos_server,
+                    "payment": self.connect_to_payment_server,
+                    "knowledge": self.connect_to_knowledge_server,
+                    "logistics": self.connect_to_logistics_server,
+                }
+                connector = connect_map.get(server_name)
+                if connector:
+                    session = await connector()
+                
+                if not session:
+                    return f"Error: MCP Server '{server_name}' unavailable."
             
             if not session:
                 return f"Error: MCP Server '{server_name}' unavailable."
