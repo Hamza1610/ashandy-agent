@@ -48,7 +48,6 @@ async def sales_worker_node(state: AgentState):
              image_url = messages[-1].additional_kwargs.get("image_url")
         
         if image_url:
-        if image_url:
             visual_info_block += f"\n[Image Available]: {image_url}\nTo analyze AND search for this product in our inventory, use `detect_product_from_image('{image_url}')`."
 
         if state.get("visual_matches"):
