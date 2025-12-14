@@ -117,14 +117,14 @@ async def search_pos_direct(query: str) -> str:
     logger.warning(f"MCP Search failed/returned error: {mcp_result}. Falling back.")
 
     # 2. Mock Fallback (if MCP unavailable)
-    return \"\"\"
+    return """
 [MOCK - MCP DISCONNECTED]
 - ID: 999
   Name: Nivea Body Lotion (Local Mock)
   Price: ₦4,500
   Stock: 15
   Desc: Deep moisture for dry skin.
-\"\"\"
+"""
 
 @tool
 async def sync_inventory_from_pos(data: list) -> str:

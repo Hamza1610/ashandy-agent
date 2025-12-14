@@ -49,13 +49,17 @@ async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
 
         changes = entry.changes[0]
         value = changes.value
+        
+        if not value:
+             return {"status": "no_value"}
+             
         messages = value.messages
 
         if not messages:
             return {"status": "no_messages"}
 
         message = messages[0]
-        from_phone = message.get("from") # The user's phone number
+        from_phone = message.from_ # The user's phone number
         
         # Extract message content
         content = ""
@@ -64,14 +68,14 @@ async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
         user_message_content = ""
         image_url = None
         if msg_type == "text":
-            text_obj = message.get("text", {})
-            user_message_content = text_obj.get("body", "")
+            text_obj = message.text
+            user_message_content = text_obj.body if text_obj else ""
         elif msg_type == "image":
             # Handle Image
-            img_obj = message.get("image", {})
-            media_id = img_obj.get("id")
-            caption = img_obj.get("caption", "")
-            user_message_content = caption # Use caption as text context
+            img_obj = message.image
+            media_id = img_obj.id if img_obj else None
+            caption = img_obj.caption if img_obj else ""
+            user_message_content = caption or "" # Use caption as text context
             
             # Resolve URL
             fetched_url = await meta_service.get_media_url(media_id)
