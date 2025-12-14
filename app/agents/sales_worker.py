@@ -22,14 +22,33 @@ async def sales_worker_node(state: AgentState):
         task_statuses = state.get("task_statuses", {})
         
         # Find My Task (Worker = sales_worker AND Status = in_progress)
+        logger.info(f"DEBUG SALES WORKER: Plan Length: {len(plan)}")
+        logger.info(f"DEBUG SALES WORKER: Statuses: {task_statuses}")
+        
         current_step = None
         for step in plan:
-            if step.get("worker") == "sales_worker" and task_statuses.get(step["id"]) == "in_progress":
+            s_id = step.get("id")
+            s_worker = step.get("worker")
+            s_status = task_statuses.get(s_id)
+            logger.info(f"Check Step {s_id}: Worker={s_worker}, Status={s_status}")
+            
+            if s_worker == "sales_worker" and s_status == "in_progress":
                 current_step = step
                 break
         
+        # Fallback: If Dispatcher sent us here but status state is lost (Empty Statuses), 
+        # assume the first task for this worker is the one.
+             for step in plan:
+                 if step.get("worker") == "sales_worker":
+                     current_step = step
+                     logger.info(f"Using Fail-Safe: Recovered Task {step.get('id')} from plan.")
+                     break
+
         if not current_step:
-            return {"worker_result": "No active task for sales_worker."}
+            # DEBUG: Expose state details in the response to diagnose routing issue
+            debug_details = f"PlanLen={len(plan)} Statuses={task_statuses} Steps={[s.get('id') + ':' + s.get('worker') for s in plan]}"
+            logger.error(f"SALES WORKER FAIL: {debug_details}")
+            return {"worker_result": f"No active task for sales_worker. Context: {debug_details}"}
             
         task_desc = current_step.get("task", "")
         task_id = current_step.get("id")
@@ -43,7 +62,6 @@ async def sales_worker_node(state: AgentState):
         if not image_url and messages:
              image_url = messages[-1].additional_kwargs.get("image_url")
         
-        if image_url:
         if image_url:
             visual_info_block += f"\n[Image Available]: {image_url}\nTo analyze AND search for this product in our inventory, use `detect_product_from_image('{image_url}')`."
 
@@ -70,6 +88,7 @@ async def sales_worker_node(state: AgentState):
 ### WHATSAPP FORMATTING (IMPORTANT)
 Format responses for easy reading:
 - Use *bold* for product names: *Product Name*
+- Responses should be in a single message. The only exception is when it is absolutely necessary to add one more sentence for excellence.
 - Add emojis sparingly: ✨ 💄 🛍️
 - Always end with a clear call-to-action
 
@@ -114,6 +133,7 @@ If you simply reply, that is the result.
         # Execute Tools Manually (ReAct Style) to return a final string result
         # In a Worker node, we usually want to resolve the Action to a Result
         final_result = response.content
+        tool_evidence = []
         
         if response.tool_calls:
             for tc in response.tool_calls:
@@ -122,7 +142,7 @@ If you simply reply, that is the result.
                 logger.info(f"Sales Worker calling tool: {name}")
                 
                 tool_output = ""
-                # MATCH THE TOOL NAMES FROM DECORATORS in product_tools.py
+                # MATCH THE TOOL NAMES FROM DECORATORS
                 if name == "search_products_tool" or name == "search_products":
                     tool_output = await search_products.ainvoke(args)
                 elif name == "check_product_stock_tool" or name == "check_product_stock":
@@ -132,8 +152,6 @@ If you simply reply, that is the result.
                 elif name == "retrieve_user_memory":
                     tool_output = await retrieve_user_memory.ainvoke(args)
                 elif name == "detect_product_from_image":
-                    # OLD: tool_output = await detect_product_from_image.ainvoke(args)
-                    # NEW: Call MCP knowledge.analyze_and_enrich
                     from app.services.mcp_service import mcp_service
                     img_url = args.get("image_url")
                     if img_url:
@@ -141,15 +159,21 @@ If you simply reply, that is the result.
                     else:
                         tool_output = "Error: No image_url provided."
                 
+                # CAPTURE EVIDENCE (New for Reviewer)
+                tool_evidence.append({
+                    "tool": name,
+                    "args": args,
+                    "output": str(tool_output)[:500] # Truncate heavily for token efficiency
+                })
+
                 # Append tool output to result, UNLESS it's a silent tool like save_memory/save_interaction
                 if name != "save_user_interaction":
-                    # Clean append: Just add the content with newlines, no technical headers
                     final_result += f"\n\n{tool_output}"
         
         return {
             "worker_outputs": {task_id: final_result},
+            "worker_tool_outputs": {task_id: tool_evidence},
             "messages": [AIMessage(content=final_result)]
-            # We do NOT increment step index here. The Planner does that on return.
         }
 
     except Exception as e:

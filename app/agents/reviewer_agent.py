@@ -7,50 +7,50 @@ import json
 
 logger = logging.getLogger(__name__)
 
-async def reviewer_agent_node(state: AgentState):
+async def reviewer_agent_node(state: AgentState, worker_scope: str = None):
     """
     Reviewer Agent: The Internal Auditor.
     
-    Responsibilities:
-    1. Validates the LAST WORKER'S output against the Task Description.
-    2. Checks for hallucinations, math errors, and missing information.
-    3. Provides constructive critique if rejected.
-    4. Auto-corrects trivial formatting issues if high confidence.
-    
-    Inputs:
-    - state['current_task']
-    - state['worker_result']
-    - state['retry_counts']
-    
-    Outputs:
-    - task_statuses[task_id] -> "approved" | "failed"
-    - reviewer_critique -> Feedback
+    Args:
+        state: The AgentState
+        worker_scope: Optional filter (e.g., "sales_worker"). 
+                      If provided, checks ONLY tasks for this worker.
     """
     try:
         # 1. Gather Context
         plan = state.get("plan", [])
         idx = state.get("current_step_index", 0)
+        task_statuses = state.get("task_statuses", {})
         
-        if not plan or idx >= len(plan):
-            return {"error": "Reviewer called with no active task."}
+        if not plan:
+            return {"error": "Reviewer called with no plan."}
             
-        current_step = plan[idx] # WARNING: This uses global IDX. Reviewer MUST use specific logic too.
-        # But for generic Reviewer node aliased as 'sales_reviewer' etc, we need to know WHICH task.
-        # For now, let's assume specific reviewers or the single node finds the "In Progress" task for its domain.
-        
         # FIX: Find the task being reviewed (Status = in_progress or reviewing)
-        # Assuming the worker just finished, status might still be "in_progress" (set by Dispatcher).
-        # We need a way to link Reviewer Execution to Task ID.
-        # If we use Aliased Nodes (sales_reviewer), we search for sales task.
+        # We start searching from the 'current_step_index' or just scan all?
+        # Scanning is safer for parallel flows.
         
         task_id = None
+        current_step = None
+        
         for step in plan:
-             # Heuristic: If status is 'in_progress', it's ready for review.
-             # Only one task should be in_progress per worker type in our simplified parallel model.
-             if task_statuses.get(step["id"]) == "in_progress":
-                 task_id = step["id"]
+             s_id = step.get("id")
+             s_worker = step.get("worker")
+             status = task_statuses.get(s_id)
+             
+             # If we have a scope, IGNORE tasks not for this worker
+             if worker_scope and s_worker != worker_scope:
+                 continue
+                 
+             # Heuristic: If status is 'in_progress' or 'reviewing', it's the target.
+             if status in ["in_progress", "reviewing"]:
+                 task_id = s_id
                  current_step = step
                  break
+        
+        if not task_id:
+             # Just pass through if nothing to review (could happen in complex graph edges)
+             return {}
+
         
         if not task_id:
              return {"error": "Reviewer found no task to review."}
@@ -58,6 +58,16 @@ async def reviewer_agent_node(state: AgentState):
         task_desc = current_step.get("task", "")
         worker_result = state.get("worker_outputs", {}).get(task_id, "")
         
+        # Evidence Retrieval
+        tool_evidence = state.get("worker_tool_outputs", {}).get(task_id, [])
+        evidence_block = ""
+        if tool_evidence:
+             evidence_block = "### 🔍 DATABASE EVIDENCE (GROUND TRUTH):\n"
+             for item in tool_evidence:
+                 evidence_block += f"- Tool: {item['tool']}\n  Args: {item['args']}\n  Output: {item['output']}\n"
+        else:
+             evidence_block = "### ⚠️ NO TOOL EVIDENCE AVAILABLE (Verify Logic Only)"
+
         # 2. Check Retry Count (Deadlock Prevention)
         retry_counts = state.get("retry_counts", {})
         current_retries = retry_counts.get(task_id, 0)
@@ -81,32 +91,46 @@ async def reviewer_agent_node(state: AgentState):
             response_format={"type": "json_object"}
         )
         
-        # 4. Construct Prompt
+        # 4. Construct Prompt (High-Level Chain-of-Thought for 8B)
         system_prompt = f"""You are the **Quality Assurance Auditor** for an AI Commerce Agent.
-Your job is to strictly verify the "Worker Output" against the "Task Description".
+Your Goal: Strictly verify the 'Worker Output' against the 'Task' and 'Database Evidence'.
 
+### 1. INPUT DATA
 **Task:** "{task_desc}"
 
-**Worker Output:** 
-{worker_result}
+**Worker Output (The Draft):** 
+"{worker_result}"
 
-**Verification Criteria:**
-1. **Accuracy**: Are facts, prices, and math correct?
-2. **Completeness**: Did the worker answer the ENTIRE task?
-3. **Safety**: No hallucinations or dangerous content.
-4. **Format**: Is the output clean and readable?
+{evidence_block}
 
-**Output JSON Format (Strict):**
+### 2. AUDIT INSTRUCTIONS
+Check these 3 dimensions. If any fail, REJECT.
+
+**A. Accuracy (Fact Check)**
+- Does the Output match the Evidence? 
+- *Bad:* Evidence says Price is 5000, Output says 4000. -> REJECT.
+- *Good:* Evidence says Stock is 0, Output says "Out of Stock". -> APPROVE.
+- *If No Evidence:* Trust the logic, but flag hallucinations.
+
+**B. Completeness**
+- Did the worker answer the *specific* task? 
+- *Bad:* Task="Get Price", Output="Hello". -> REJECT.
+
+**C. Safety & Format**
+- Is it clean text (no JSON/Code traces)?
+- Is it polite?
+
+### 3. OUTPUT FORMAT (JSON ONLY)
 {{
     "verdict": "APPROVE" | "REJECT",
-    "critique": "Exact reason for rejection (if REJECT). Be specific and constructive.",
-    "correction": "Optional corrected version (if minor formatting error)"
+    "critique": "Exact reason for rejection (if REJECT). Be specific about the mismatch.",
+    "correction": "Optional corrected version"
 }}
 
-**Rules:**
-- If the output is "good enough", APPROVE. Do not be nitpicky about style unless it affects clarity.
-- If REJECT, your `critique` will be shown to the worker to fix it.
-- If the output creates a broken user experience (e.g., empty string, code trace), REJECT.
+**Tips:**
+- If the output is "No active task", REJECT.
+- If the output contains error traces, REJECT.
+- If the output matches evidence, APPROVE.
 """
 
         messages = [SystemMessage(content=system_prompt)]

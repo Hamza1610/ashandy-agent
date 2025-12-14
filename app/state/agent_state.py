@@ -133,6 +133,9 @@ class AgentState(TypedDict):
     next_workers: Optional[List[str]]
     """Temp field for Dispatcher routing"""
 
+    worker_tool_outputs: Annotated[Dict[str, List[Dict]], operator.or_]
+    """Map of task_id -> List of {tool, args, output}. For Reviewer evidence."""
+
     # ========== Response Metadata ==========
     send_result: Optional[Dict]
     """Result of sending message via Meta API"""

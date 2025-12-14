@@ -82,7 +82,8 @@ Order Data: {state.get('order_data', {})}
         # 5. Execution Loop (Simple Tool Call)
         response = await llm.ainvoke(messages)
         final_output = response.content or ""
-        
+        tool_evidence = [] # Initialize Ledger (fixes UnboundLocalError)
+
         if response.tool_calls:
             for tc in response.tool_calls:
                 name = tc["name"]
@@ -98,12 +99,20 @@ Order Data: {state.get('order_data', {})}
                 elif name == "create_order_record":
                     tool_res = await create_order_record.ainvoke(args)
                 
+                # CAPTURE EVIDENCE
+                tool_evidence.append({
+                    "tool": name,
+                    "args": args,
+                    "output": str(tool_res)[:500]
+                })
+
                 # Append result to output
                 final_output += f"\nResult of {name}: {str(tool_res)}"
                 
         # 6. Return Result
         return {
             "worker_outputs": {my_task["id"]: final_output},
+            "worker_tool_outputs": {my_task["id"]: tool_evidence},
             "messages": [AIMessage(content=final_output)]
         }
 

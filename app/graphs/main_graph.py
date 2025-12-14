@@ -31,10 +31,14 @@ def dispatcher_node(state: AgentState):
     
     active_worker_types = set()
     
+    logger.info(f"DEBUG DISPATCHER: Plan={len(plan)} Statuses={task_statuses}")
+    
     for step in plan:
         id = step["id"]
         status = task_statuses.get(id, "pending")
         worker_type = step["worker"]
+        
+        logger.info(f"Dispatch Check Step {id}: Status={status}, Worker={worker_type}")
         
         # If Failed, do we stop everything? 
         # Plan says: "Graceful fail to user".
@@ -53,7 +57,10 @@ def dispatcher_node(state: AgentState):
                     updated_statuses[id] = "in_progress" # Activate
                     next_workers.append(worker_type)
                     active_worker_types.add(worker_type)
+                    logger.info(f"ACTIVATING Task {id} for {worker_type}")
     
+    logger.info(f"DISPATCHER RETURNING: Next={next_workers}, UpdatedStatus={updated_statuses}")
+
     return {
         "task_statuses": updated_statuses, 
         "next_workers": next_workers # Temp key for router
@@ -111,10 +118,12 @@ workflow.add_node("admin_worker", admin_worker_node)
 workflow.add_node("payment_worker", payment_worker_node)
 workflow.add_node("email_alert", admin_email_alert_node) # New Node
 
-# Reviewers (Aliased nodes for parallel wiring)
-workflow.add_node("sales_reviewer", reviewer_agent_node)
-workflow.add_node("admin_reviewer", reviewer_agent_node)
-workflow.add_node("payment_reviewer", reviewer_agent_node)
+from functools import partial
+
+# Reviewers (Aliased nodes for parallel wiring with specific scope)
+workflow.add_node("sales_reviewer", partial(reviewer_agent_node, worker_scope="sales_worker"))
+workflow.add_node("admin_reviewer", partial(reviewer_agent_node, worker_scope="admin_worker"))
+workflow.add_node("payment_reviewer", partial(reviewer_agent_node, worker_scope="payment_worker"))
 
 # Output Supervisor
 workflow.add_node("output_supervisor", output_supervisor_node)

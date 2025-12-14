@@ -135,9 +135,21 @@ async def admin_worker_node(state: AgentState):
         
              response_text = f"Admin processed task: {task_desc}"
              
+             response_text = f"Admin processed task: {task_desc}"
+             
+        # CAPTURE EVIDENCE (Admin uses manual tool calls, so we construct this)
+        # Note: In a cleaner refactor, we'd wrap these tool calls to auto-log. 
+        # For now, we retrospectively log the successful action.
+        tool_evidence = [{
+            "tool": "admin_action", # Generic name for manual admin calls
+            "args": {"task": task_desc},
+            "output": str(response_text)[:500] 
+        }]
+
         from langchain_core.messages import AIMessage
         return {
             "worker_outputs": {task_id: response_text},
+            "worker_tool_outputs": {task_id: tool_evidence},
             "messages": [AIMessage(content=response_text)]
         }
         
@@ -165,9 +177,46 @@ async def admin_email_alert_node(state: AgentState):
             import aiosmtplib
             from email.message import EmailMessage
             
+            # Context for Admin
+            critique = state.get("reviewer_critique", "N/A")
+            plan = state.get("plan", [])
+            
+            # Find the failed step
+            # logic: error_msg usually contains "Task {id} Failed..."
+            failed_step = None
+            failed_step_id = "unknown"
+            for s in plan:
+                if s.get("id") in error_msg:
+                    failed_step = s
+                    failed_step_id = s.get("id")
+                    break
+            
+            task_desc = failed_step.get("task") if failed_step else "Unknown Task"
+            worker_name = failed_step.get("worker") if failed_step else "Unknown Worker"
+            
+            email_body = f"""🚨 SYSTEM ALERT: AGENT FAILURE
+            
+User ID: {user_id}
+Error Context: {error_msg}
+
+--------------------------------------------------
+❌ FAILURE DETAILS
+--------------------------------------------------
+• Failed Worker:  {worker_name.upper()}
+• Task ID:        {failed_step_id}
+• Assignment:     "{task_desc}"
+
+--------------------------------------------------
+🔍 REVIEWER CRITIQUE (Reason for Rejection):
+{critique}
+--------------------------------------------------
+
+Please intervene immediately.
+"""
+            
             msg = EmailMessage()
-            msg.set_content(f"User ID: {user_id}\nError: {error_msg}\n\nPlease check the logs and database for details.")
-            msg['Subject'] = f"🚨 ASHANDY ALERT: Agent Escalation (User {user_id})"
+            msg.set_content(email_body)
+            msg['Subject'] = f"🚨 ASHANDY ALERT: {worker_name.upper()} Failed (User {user_id})"
             msg['From'] = settings.SMTP_USERNAME
             msg['To'] = settings.ADMIN_EMAIL
             

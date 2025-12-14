@@ -1,6 +1,10 @@
 import httpx
 import os
 import logging
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 from typing import List, Dict, Any
 
 # Configure logging locally for the server
@@ -178,12 +182,12 @@ Image: {item.get('image_id')}
             return f"Error retrieving sale: {e}"
 
     def _get_mock_data(self, query: str) -> str:
-        """Fallback mock data for development."""
-        return """
+        """Fallback mock data matching the query for development continuity."""
+        return f"""
 [MOCK POS DATA - LIVE CONNECTION FAILED]
 - ID: 999
-  Name: Nivea Body Lotion (Mock)
+  Name: {query.title()} (Mock)
   Price: ₦4,500
   Stock: 15
-  Desc: Deep moisture for dry skin.
+  Desc: Mock description for {query}.
 """

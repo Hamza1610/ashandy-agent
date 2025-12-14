@@ -1,6 +1,10 @@
 from mcp.server.fastmcp import FastMCP
 from src.pos_client import PHPPOSClient
 import logging
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Initialize Server
 mcp = FastMCP("ashandy-pos")
