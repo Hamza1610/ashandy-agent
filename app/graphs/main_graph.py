@@ -68,6 +68,7 @@ def dispatcher_edge(state: AgentState):
 def supervisor_router(state: AgentState):
     """Edge function: routes based on supervisor verdict."""
     verdict = state.get("supervisor_verdict", "ignore")
+    logger.info(f"🔀 SUPERVISOR_ROUTER: verdict='{verdict}'")
     if verdict == "safe":
         return "planner"
     elif verdict == "cached":
@@ -75,6 +76,7 @@ def supervisor_router(state: AgentState):
         return "output_supervisor"
     elif verdict == "block":
         return "end_block"
+    logger.warning(f"🔀 SUPERVISOR_ROUTER: Routing to end_ignore (unexpected verdict)")
     return "end_ignore"
 
 

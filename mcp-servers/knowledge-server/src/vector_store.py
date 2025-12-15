@@ -2,7 +2,8 @@ import os
 import logging
 import time
 from pinecone import Pinecone, ServerlessSpec
-from sentence_transformers import SentenceTransformer
+# Lazy import for performance and robustness
+# from sentence_transformers import SentenceTransformer (Moved inside class)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -23,20 +24,23 @@ class VectorStore:
         if self.api_key:
             try:
                 self.pc = Pinecone(api_key=self.api_key)
-                self._ensure_index_exists(self.index_name_products, dimension=384)
-                self._ensure_index_exists(self.index_name_visual, dimension=768)
-                self._ensure_index_exists(self.index_name_memory, dimension=384)
+                # Indexes checked on demand or async to speed up init
             except Exception as e:
                 logger.error(f"Pinecone Init Failed: {e}")
         else:
             logger.error("PINECONE_API_KEY missing.")
 
-        # Initialize Model (Lazy load or instant?)
-        # Instant load is better for server readiness
+        # Initialize Model (Lazy load attempted)
+        self._load_model()
+        
+    def _load_model(self):
         try:
+            from sentence_transformers import SentenceTransformer
             logger.info("Loading SentenceTransformer model...")
             self.model = SentenceTransformer('all-MiniLM-L6-v2')
             logger.info("Model loaded.")
+        except ImportError:
+            logger.error("❌ 'sentence-transformers' not installed. Please pip install it.")
         except Exception as e:
             logger.error(f"Model Load Failed: {e}")
 

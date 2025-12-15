@@ -41,6 +41,12 @@ try:
 except ImportError:
     CACHE_SERVICE_AVAILABLE = False
 
+try:
+    from app.services.mcp_service import mcp_service
+    MCP_SERVICE_AVAILABLE = True
+except ImportError:
+    MCP_SERVICE_AVAILABLE = False
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -61,6 +67,13 @@ async def lifespan(app: FastAPI):
             logger.info("✅ Scheduler started")
         except Exception as e:
             logger.warning(f"Scheduler failed: {e}")
+
+    # Initialize MCP connections (fixes shutdown errors)
+    if MCP_SERVICE_AVAILABLE:
+        try:
+            await mcp_service.initialize_all()
+        except Exception as e:
+            logger.error(f"MCP initialization failed: {e}")
     
     # Warm response cache with common FAQs
     if CACHE_SERVICE_AVAILABLE:
@@ -77,6 +90,10 @@ async def lifespan(app: FastAPI):
             shutdown_scheduler()
         except:
             pass
+            
+    if MCP_SERVICE_AVAILABLE:
+        await mcp_service.cleanup()
+        
     logger.info(f"Shutting down {settings.APP_NAME}")
 
 

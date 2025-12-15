@@ -30,7 +30,7 @@ class MultiProviderLLM:
                 "fast": "meta-llama/llama-4-scout-17b-16e-instruct",
                 "powerful": "meta-llama/llama-4-maverick-17b-128e-instruct",
                 "guard": "meta-llama/llama-guard-4-12b",
-                "versatile": "meta-llama/llama-3.3-70b-versatile"
+                "versatile": "llama-3.3-70b-versatile"
             },
             "timeout": 30
         },
@@ -51,7 +51,7 @@ class MultiProviderLLM:
             "models": {
                 "fast": "meta-llama/llama-3.3-70b-instruct",
                 "powerful": "meta-llama/llama-3.3-70b-instruct",
-                "guard": "meta-llama/llama-3.3-70b-instruct",  # No guard model, use standard
+                "guard": "meta-llama/llama-guard-2-8b", 
                 "versatile": "meta-llama/llama-3.3-70b-instruct"
             },
             "timeout": 60
@@ -163,13 +163,17 @@ class MultiProviderLLM:
         if json_mode:
             model_kwargs["response_format"] = {"type": "json_object"}
         
-        llm = ChatGroq(
-            groq_api_key=settings.LLAMA_API_KEY,
-            model_name=model,
-            temperature=temperature,
-            timeout=timeout,
-            model_kwargs=model_kwargs if model_kwargs else None
-        )
+        # Build kwargs dynamically to avoid passing None
+        groq_kwargs = {
+            "groq_api_key": settings.LLAMA_API_KEY,
+            "model_name": model,
+            "temperature": temperature,
+            "timeout": timeout,
+        }
+        if model_kwargs:
+            groq_kwargs["model_kwargs"] = model_kwargs
+        
+        llm = ChatGroq(**groq_kwargs)
         
         # Convert tuples to LangChain messages
         lc_messages = []
@@ -288,13 +292,17 @@ def get_llm(model_type: str = "fast", temperature: float = 0.3, json_mode: bool 
     if json_mode:
         model_kwargs["response_format"] = {"type": "json_object"}
     
-    return ChatGroq(
-        groq_api_key=settings.LLAMA_API_KEY,
-        model_name=model_name,
-        temperature=temperature,
-        timeout=config["timeout"],
-        model_kwargs=model_kwargs if model_kwargs else None
-    )
+    # Build kwargs dynamically to avoid passing None
+    groq_kwargs = {
+        "groq_api_key": settings.LLAMA_API_KEY,
+        "model_name": model_name,
+        "temperature": temperature,
+        "timeout": config["timeout"],
+    }
+    if model_kwargs:
+        groq_kwargs["model_kwargs"] = model_kwargs
+    
+    return ChatGroq(**groq_kwargs)
 
 
 async def invoke_with_fallback(
