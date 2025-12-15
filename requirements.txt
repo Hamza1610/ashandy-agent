@@ -27,3 +27,6 @@ huggingface_hub
 pytest
 pytest-asyncio
 mcp[cli]>=0.1.0
+# System 3.0 additions
+apscheduler
+aiosmtplib

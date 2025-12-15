@@ -1,48 +1,33 @@
+"""
+Sentiment Tool: Analyze text sentiment with fallback.
+"""
 from langchain.tools import tool
-from langchain_groq import ChatGroq
-from app.utils.config import settings
+from app.services.llm_service import invoke_with_fallback
 import logging
 
 logger = logging.getLogger(__name__)
 
+
 @tool
 async def analyze_sentiment(text: str) -> float:
-    """
-    Analyze sentiment of text using Llama 3 on Groq. 
-    Returns score -1.0 (neg) to 1.0 (pos).
-    """
-    if not settings.LLAMA_API_KEY:
-         logger.error("LLAMA_API_KEY (Groq) is missing.")
-         return 0.0
-
+    """Analyze sentiment with fallback. Returns -1.0 (negative) to 1.0 (positive)."""
     try:
-        llm = ChatGroq(
-            temperature=0,
-            groq_api_key=settings.LLAMA_API_KEY,
-            model_name="meta-llama/llama-4-scout-17b-16e-instruct"
+        response = await invoke_with_fallback(
+            messages=[
+                ("system", "Return ONLY a float -1.0 to 1.0 for sentiment. No words."),
+                ("user", text)
+            ],
+            model_type="fast",
+            temperature=0
         )
         
-        system_prompt = """Analyze the sentiment of the following text. 
-        Return ONLY a float number between -1.0 (extremely negative) and 1.0 (extremely positive). 
-        Do not output any words, just the number."""
-        
-        messages = [
-            ("system", system_prompt),
-            ("human", text)
-        ]
-        
-        response = await llm.ainvoke(messages)
-        content = response.content.strip()
-        
-        # Try to parse float
         try:
-            score = float(content)
+            score = float(response.strip())
             return max(min(score, 1.0), -1.0)
         except ValueError:
-            logger.warning(f"Could not parse sentiment score from: {content}")
+            logger.warning(f"Could not parse: {response}")
             return 0.0
 
     except Exception as e:
         logger.error(f"Sentiment analysis failed: {e}")
         return 0.0
-

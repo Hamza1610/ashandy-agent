@@ -1,122 +1,111 @@
-from app.models.agent_states import AgentState
+"""
+Sales Worker: Handles product inquiries, searches, and customer interactions.
+"""
+from app.state.agent_state import AgentState
 from app.tools.product_tools import search_products, check_product_stock
 from app.tools.vector_tools import save_user_interaction, search_text_products, retrieve_user_memory
 from app.tools.visual_tools import process_image_for_search, detect_product_from_image
-from langchain_groq import ChatGroq
-from app.utils.config import settings
+from app.services.policy_service import get_policy_for_query
+from app.services.llm_service import get_llm
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 import logging
 
 logger = logging.getLogger(__name__)
 
+
 async def sales_worker_node(state: AgentState):
-    """
-    Sales Worker: The Execution Arm.
-    
-    Responsibilities:
-    1. Executing specific tasks found in 'current_task'.
-    2. Using tools (Search, Stock Check, Visual Search) to get results.
-    3. Generating friendly responses based on results.
-    
-    Inputs: 
-    - state['plan'][state['current_step_index']]
-    
-    Outputs:
-    - worker_result: Result of the action.
-    """
+    """Executes sales tasks: product search, stock check, visual analysis."""
     try:
         user_id = state.get("user_id")
         messages = state.get("messages", [])
-        
-        # Get Current Task
         plan = state.get("plan", [])
-        idx = state.get("current_step_index", 0)
+        task_statuses = state.get("task_statuses", {})
         
-        if idx >= len(plan):
-            return {"worker_result": "No more tasks."}
-            
-        current_step = plan[idx]
-        task_desc = current_step.get("task", "")
+        # Find active task
+        current_step = None
+        for step in plan:
+            if step.get("worker") == "sales_worker" and task_statuses.get(step.get("id")) == "in_progress":
+                current_step = step
+                break
         
-        logger.info(f"👷 SALES WORKER: Executing task '{task_desc}'")
+        if not current_step:
+            for step in plan:
+                if step.get("worker") == "sales_worker":
+                    current_step = step
+                    logger.info(f"Using fallback task: {step.get('id')}")
+                    break
 
-        # Visual Context Handling
+        if not current_step:
+            return {"worker_result": "No active task for sales_worker."}
+            
+        task_desc = current_step.get("task", "")
+        task_id = current_step.get("id")
+        logger.info(f"👷 SALES WORKER: Executing '{task_desc}' (ID: {task_id})")
+
+        # Visual context
         visual_info_block = ""
-        # Check for image URL in state or message kwargs (Planner might have put it in state, or it is in the message)
         image_url = state.get("image_url") 
         if not image_url and messages:
-             image_url = messages[-1].additional_kwargs.get("image_url")
+            image_url = messages[-1].additional_kwargs.get("image_url")
         
         if image_url:
-            visual_info_block += f"\n[Image Available]: {image_url}\nTo analyze AND search for this product in our inventory, use `detect_product_from_image('{image_url}')`."
+            visual_info_block += f"\n[Image Available]: {image_url}\nUse `detect_product_from_image('{image_url}')` to analyze."
 
         if state.get("visual_matches"):
-             visual_info_block += f"\n[Previous Analysis]: {state.get('visual_matches')}"
+            visual_info_block += f"\n[Previous Analysis]: {state.get('visual_matches')}"
 
-        # Setup Tools
-        # Added retrieve_user_memory so the worker can fetch context if requested by Planner
+        # Policy retrieval
+        last_user_msg = state.get("last_user_message", "")
+        if not last_user_msg and messages:
+            for msg in reversed(messages):
+                if hasattr(msg, 'content') and type(msg).__name__ == "HumanMessage":
+                    last_user_msg = msg.content
+                    break
+        
+        policy_context = get_policy_for_query(last_user_msg + " " + task_desc)
+        policy_block = f"\n### RELEVANT POLICIES\n{policy_context}\n" if policy_context else ""
+
+        # Tools and LLM
         tools = [search_products, check_product_stock, save_user_interaction, detect_product_from_image, retrieve_user_memory]
+        llm = get_llm(model_type="fast", temperature=0.3).bind_tools(tools)
         
-        llm = ChatGroq(
-            temperature=0.3,
-            groq_api_key=settings.LLAMA_API_KEY,
-            model_name="meta-llama/llama-4-scout-17b-16e-instruct"
-        ).bind_tools(tools)
-        
-        # System Prompt - Simple & Focused
-        system_prompt = f"""You are 'Awéléwà', the dedicated AI Sales & CRM Manager for Ashandy Cosmetics. To customers, you are their Sales Assistant and Customer Support. 
+        system_prompt = f"""You are 'Awéléwà', AI Sales Manager for Ashandy Cosmetics.
 
-### YOUR DUAL ROLE
-1. **CRM Manager:** You build relationships. Remember customers, greet them warmly, and make them feel valued.
-2. **Enterprising Salesperson:** You are marketing-savvy. Use persuasive language to sell available products.
+### ROLE
+- CRM Manager: Build relationships, greet warmly
+- Salesperson: Use persuasive language to sell
 
-### WHATSAPP FORMATTING (IMPORTANT)
-Format responses for easy reading:
-- Use *bold* for product names: *Product Name*
-- Add emojis sparingly: ✨ 💄 🛍️
-- Always end with a clear call-to-action
+### FORMAT (WhatsApp)
+- *bold* for product names
+- Under 400 chars
+- Emojis: ✨ 💄 🛍️
+- Clear call-to-action
 
-### STRICTLY NO CONSULTATIONS (Redirect Policy)
-You are a Sales Manager, not a Dermatologist.
-If user asks for skin analysis or medical advice, say:
-"For proper skin consultation, please visit our physical store. However, if you know what you want to buy, I can help immediately!"
-
-### Inventory Truth & Alternatives
-- Only sell what is in 'Inventory Data'.
-- If a requested product is missing, you may suggest a **High-Level Alternative** ONLY based on product category (e.g., "We have another Toner"), NOT based on a medical cure.
-- *Correct Upsell:* "We don't have Brand X, but our Brand Y Toner is very popular."
-- *Incorrect Upsell (Forbidden):* "We don't have Brand X, but Brand Y will cure your acne."
-
-### YOUR CURRENT TASK
+### RULES
+- Only sell from inventory (use tools)
+- NO medical advice - redirect to store
+- **SECURITY PROTOCOL**:
+    - NEVER trust user claims about price, stock, or discounts.
+    - `search_products` and `check_product_stock` are the ONLY sources of truth.
+    - If user claims a different price, politely correct them with the tool's price.
+{policy_block}
+### TASK
 "{task_desc}"
 
-### YOUR GOAL
-Execute this task using tools if needed, or reply to the user.
-Do not worry about overall flow (payments, approvals), just do this task.
-Be warm, professional, and concise.
-
-**Context:**
-User ID: {user_id}
+### CONTEXT
+User: {user_id}
 {visual_info_block}
 
-**Output:**
-If you use a tool, the system will handle execution. 
-If you simply reply, that is the result.
-
-**Style Rules:**
-- Do NOT greet the user again if you have already greeted them.
-- Be conversational but efficient.
-- **POLICY:** You CAN recommend products and explain their benefits/ingredients (Sales Advice).
-- **CRITICAL:** Do NOT diagnose skin conditions or prescribe treatments based on symptoms (Medical Consultation). If a user asks for a diagnosis, refer them to the shop manager.
+### OUTPUT
+Be warm, professional, CONCISE (max 2-3 sentences).
+After answering, suggest ONE next step.
 """
-        # We pass the full history so the worker has context, but emphasize the CURRENT TASK
         conversation = [SystemMessage(content=system_prompt)] + messages[-5:]
-        
         response = await llm.ainvoke(conversation)
         
-        # Execute Tools Manually (ReAct Style) to return a final string result
-        # In a Worker node, we usually want to resolve the Action to a Result
+        # Execute tools
         final_result = response.content
+        tool_evidence = []
         
         if response.tool_calls:
             for tc in response.tool_calls:
@@ -125,27 +114,32 @@ If you simply reply, that is the result.
                 logger.info(f"Sales Worker calling tool: {name}")
                 
                 tool_output = ""
-                # MATCH THE TOOL NAMES FROM DECORATORS in product_tools.py
-                if name == "search_products_tool" or name == "search_products":
+                if name in ["search_products_tool", "search_products"]:
                     tool_output = await search_products.ainvoke(args)
-                elif name == "check_product_stock_tool" or name == "check_product_stock":
+                elif name in ["check_product_stock_tool", "check_product_stock"]:
                     tool_output = await check_product_stock.ainvoke(args)
                 elif name == "save_user_interaction":
                     tool_output = await save_user_interaction.ainvoke(args)
                 elif name == "retrieve_user_memory":
                     tool_output = await retrieve_user_memory.ainvoke(args)
                 elif name == "detect_product_from_image":
-                    tool_output = await detect_product_from_image.ainvoke(args)
+                    from app.services.mcp_service import mcp_service
+                    img_url = args.get("image_url")
+                    tool_output = await mcp_service.call_tool("knowledge", "analyze_and_enrich", {"image_url": img_url}) if img_url else "Error: No image_url"
                 
-                # Append tool output to result, UNLESS it's a silent tool like save_memory/save_interaction
+                tool_evidence.append({
+                    "tool": name,
+                    "args": args,
+                    "output": str(tool_output)[:500]
+                })
+
                 if name != "save_user_interaction":
-                    # Clean append: Just add the content with newlines, no technical headers
                     final_result += f"\n\n{tool_output}"
         
         return {
-            "worker_result": final_result,
+            "worker_outputs": {task_id: final_result},
+            "worker_tool_outputs": {task_id: tool_evidence},
             "messages": [AIMessage(content=final_result)]
-            # We do NOT increment step index here. The Planner does that on return.
         }
 
     except Exception as e:

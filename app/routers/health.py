@@ -1,3 +1,6 @@
+"""
+Health Router: System health checks for DB, Redis, and LLM providers.
+"""
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
@@ -7,17 +10,12 @@ import redis.asyncio as redis
 
 router = APIRouter()
 
+
 @router.get("/health")
 async def health_check(db: AsyncSession = Depends(get_db)):
-    health_status = {
-        "status": "healthy",
-        "services": {
-            "db": "unknown",
-            "redis": "unknown"
-        }
-    }
+    """Check core services: database and Redis."""
+    health_status = {"status": "healthy", "services": {"db": "unknown", "redis": "unknown"}}
 
-    # Check Database
     try:
         await db.execute(text("SELECT 1"))
         health_status["services"]["db"] = "up"
@@ -25,9 +23,9 @@ async def health_check(db: AsyncSession = Depends(get_db)):
         health_status["services"]["db"] = f"down: {str(e)}"
         health_status["status"] = "degraded"
 
-    # Check Redis
     try:
-        r = redis.from_url(settings.REDIS_URL, encoding="utf-8", decode_responses=True)
+        r = redis.from_url(settings.REDIS_URL or f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}", 
+                          encoding="utf-8", decode_responses=True)
         await r.ping()
         await r.close()
         health_status["services"]["redis"] = "up"
@@ -36,3 +34,37 @@ async def health_check(db: AsyncSession = Depends(get_db)):
         health_status["status"] = "degraded"
 
     return health_status
+
+
+@router.get("/health/llm")
+async def llm_health_check():
+    """Check LLM provider availability and failover status."""
+    from app.services.llm_service import llm_service
+    
+    providers_status = await llm_service.health_check()
+    
+    # Determine overall status
+    up_count = sum(1 for v in providers_status.values() if v == "up")
+    
+    if up_count == 0:
+        overall = "critical"
+    elif up_count < len(providers_status):
+        overall = "degraded"
+    else:
+        overall = "healthy"
+    
+    return {
+        "status": overall,
+        "providers": providers_status,
+        "primary": "groq",
+        "fallback_chain": ["groq", "together", "openrouter"],
+        "failure_counts": {p.value: c for p, c in llm_service.failure_counts.items()}
+    }
+
+
+@router.post("/health/llm/reset")
+async def reset_llm_failures():
+    """Reset LLM failure counts (admin action)."""
+    from app.services.llm_service import llm_service
+    llm_service.reset_failure_counts()
+    return {"status": "ok", "message": "Failure counts reset"}

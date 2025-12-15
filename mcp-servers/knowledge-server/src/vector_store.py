@@ -223,3 +223,72 @@ class VectorStore:
             return f"Interaction saved (ID: {vector_id})."
         except Exception as e:
             return f"Save Interaction Failed: {str(e)}"
+
+    # ========== RESPONSE CACHE METHODS ==========
+
+    def get_text_embedding(self, text: str) -> list:
+        """
+        Generate text embedding using SentenceTransformers.
+        Returns 384-dimension vector.
+        """
+        if not self.model:
+            return []
+        try:
+            return self.model.encode(text).tolist()
+        except Exception as e:
+            logger.error(f"Embedding generation failed: {e}")
+            return []
+
+    def search_response_cache(self, vector: list, threshold: float = 0.92, top_k: int = 1) -> list:
+        """
+        Search cached responses by vector similarity.
+        Returns list of matches with score and metadata.
+        """
+        if not self.pc:
+            return []
+            
+        try:
+            # Use memory index for response cache (384-dim)
+            index = self.pc.Index(self.index_name_memory)
+            
+            response = index.query(
+                vector=vector,
+                top_k=top_k,
+                include_metadata=True,
+                filter={"type": "response_cache"}
+            )
+            
+            matches = response.get("matches", [])
+            results = []
+            for m in matches:
+                score = m.get("score", 0)
+                if score >= threshold:
+                    results.append({
+                        "score": score,
+                        "metadata": m.get("metadata", {})
+                    })
+            return results
+            
+        except Exception as e:
+            logger.error(f"Response cache search failed: {e}")
+            return []
+
+    def upsert_response_cache(self, id: str, vector: list, metadata: dict) -> str:
+        """
+        Store a response in the cache with vector for semantic matching.
+        """
+        if not self.pc:
+            return "Error: Pinecone unavailable."
+            
+        try:
+            # Add type marker for filtering
+            metadata["type"] = "response_cache"
+            
+            index = self.pc.Index(self.index_name_memory)
+            index.upsert(vectors=[
+                (id, vector, metadata)
+            ])
+            return "Response cached successfully."
+        except Exception as e:
+            return f"Response cache upsert failed: {str(e)}"
+

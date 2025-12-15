@@ -1,83 +1,62 @@
+"""
+Vector Tools: Semantic search and memory management via Knowledge MCP.
+"""
 from langchain.tools import tool
+from app.services.mcp_service import mcp_service
 import logging
-import ast
 
 logger = logging.getLogger(__name__)
 
+
 @tool
 async def retrieve_user_memory(user_id: str) -> str:
-    """Retrieve semantic memory/preferences for a user via Knowledge MCP."""
-    logger.info(f"Retrieving memory for user_id: {user_id}")
+    """Retrieve semantic memory/preferences for a user."""
+    logger.info(f"Retrieving memory for: {user_id}")
     try:
-        from app.services.mcp_service import mcp_service
-        
-        # Call 'search_user_context' on 'knowledge' server
-        result = await mcp_service.call_tool("knowledge", "search_user_context", {
+        return await mcp_service.call_tool("knowledge", "search_user_context", {
             "user_id": user_id,
             "query": f"User preferences for {user_id}"
         })
-        return result
-        
     except Exception as e:
-        logger.error(f"Error retrieving user memory via MCP: {e}")
+        logger.error(f"Memory retrieval error: {e}")
         return "Error retrieving memory."
+
 
 @tool
 async def search_visual_products(vector: list) -> str:
-    """
-    Search for products using a visual embedding vector via Knowledge MCP.
-    Expects vector to be a list of floats (default 768 dim for DINO).
-    """
-    logger.info("Executing search_visual_products via MCP")
+    """Search products using a visual embedding vector (768 dim for DINO)."""
+    logger.info("Visual product search via MCP")
     try:
-        from app.services.mcp_service import mcp_service
-        
-        # Call 'search_visual_memory' on 'knowledge' server
-        result = await mcp_service.call_tool("knowledge", "search_visual_memory", {"vector": vector})
-        return result
-        
+        return await mcp_service.call_tool("knowledge", "search_visual_memory", {"vector": vector})
     except Exception as e:
-        logger.error(f"Error searching visual products via MCP: {e}")
+        logger.error(f"Visual search error: {e}")
         return "Error executing visual search."
+
 
 @tool
 async def search_text_products(query: str) -> str:
-    """
-    Search for products using semantic search (Knowledge Server).
-    """
-    logger.info(f"Executing search_text_products via MCP: '{query}'")
+    """Search products using semantic text search."""
+    logger.info(f"Text product search: '{query}'")
     try:
-        from app.services.mcp_service import mcp_service
-        
-        # Call 'search_memory' tool on 'knowledge' server
-        result = await mcp_service.call_tool("knowledge", "search_memory", {"query": query})
-        return result
-        
+        return await mcp_service.call_tool("knowledge", "search_memory", {"query": query})
     except Exception as e:
-        logger.error(f"Error searching text products via MCP: {e}")
+        logger.error(f"Text search error: {e}")
         return "Error executing text search."
+
 
 @tool
 async def save_user_interaction(user_id: str, user_msg: str, ai_msg: str) -> str:
-    """
-    Save a chat interaction (User + AI) to long-term memory via Knowledge MCP.
-    """
+    """Save a chat interaction to long-term memory."""
     if not user_id or not user_msg:
-        return "Missing required fields for memory save."
+        return "Missing required fields."
     
-    logger.info(f"Saving interaction for user_id: {user_id} via MCP")
+    logger.info(f"Saving interaction for: {user_id}")
     try:
-        from app.services.mcp_service import mcp_service
-        
         text_to_save = f"User: {user_msg}\nAI: {ai_msg}"
-        
-        # Call 'save_interaction' on 'knowledge' server
-        result = await mcp_service.call_tool("knowledge", "save_interaction", {
+        return await mcp_service.call_tool("knowledge", "save_interaction", {
             "user_id": user_id,
             "text": text_to_save
         })
-        return result
-        
     except Exception as e:
-        logger.error(f"Error saving memory via MCP: {e}", exc_info=True)
+        logger.error(f"Memory save error: {e}")
         return f"Failed to save memory: {str(e)}"

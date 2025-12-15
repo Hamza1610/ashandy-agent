@@ -42,6 +42,14 @@ class Settings(BaseSettings):
     META_VERIFY_TOKEN: str = "token"
     META_INSTAGRAM_TOKEN: Optional[str] = None
     META_INSTAGRAM_ACCOUNT_ID: Optional[str] = None
+    def INSTAGRAM_INGESTION_ENABLED(self) -> bool:
+        """Helper property to check if ingestion is configured."""
+        return bool(self.META_INSTAGRAM_TOKEN and self.META_INSTAGRAM_ACCOUNT_ID)
+
+    # For Pydantic v2 compat or simple boolean field if preferred:
+    # INSTAGRAM_INGESTION_ENABLED: bool = False 
+    # But since the service calls it as a property or field, let's make it a field for safety.
+    INSTAGRAM_INGESTION_ENABLED: bool = True
 
     # TWILIO (Fallback)
     TWILIO_ACCOUNT_SID: Optional[str] = None
@@ -59,23 +67,27 @@ class Settings(BaseSettings):
     # POS
     POS_CONNECTOR_API_KEY: Optional[str] = None
     
-    # PINECONE
-    PINECONE_API_KEY: Optional[str] = None
-    PINECONE_ENV: str = "us-west-1-aws"
-    PINECONE_INDEX_PRODUCTS_TEXT: str = "products-text-index"
-    PINECONE_INDEX_PRODUCTS_IMAGE: str = "products-image-index"
-    PINECONE_INDEX_USERS: str = "users-index"
+    # PINECONE (Consolidated above)
     
-    # ADMIN
+    # ADMIN (Consolidated above)
     ADMIN_PHONE_NUMBERS: List[str] = []
     
-    # GOOGLE MAPS & DELIVERY
+    # EMAIL / SMTP (Escalation)
+    SMTP_SERVER: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    ADMIN_EMAIL: Optional[str] = None # Alert recipient
+    
+    # TOMTOM MAPS & DELIVERY
     TOMTOM_API_KEY: Optional[str] = None
     SHOP_ADDRESS: str = "Ashandy Home of Cosmetics, Shop 9 &10, Divine Favor plaza, Railway Shed, Iyaganku, Dugbe Rd, Ibadan South West 200263, Oyo"
     PHPPOS_BASE_URL: Optional[str] = "https://ashandy.storeapp.com.ng/phppos/index.php/api/v1"
 
-    # AI
-    LLAMA_API_KEY: Optional[str] = None
+    # AI - Primary and Fallback Providers
+    LLAMA_API_KEY: Optional[str] = None  # Groq (Primary)
+    TOGETHER_API_KEY: Optional[str] = None  # Together AI (Fallback 1)
+    OPENROUTER_API_KEY: Optional[str] = None  # OpenRouter (Fallback 2)
     LANGCHAIN_API_KEY: Optional[str] = None
     LANGCHAIN_PROJECT: str = "ashandy-agent"
     LANGCHAIN_TRACING_V2: str = "true"
@@ -94,8 +106,7 @@ class Settings(BaseSettings):
     # RIDER_PHONE: Optional[str] = None
     # MANAGER_PHONE: Optional[str] = None
     
-    # ADMIN
-    ADMIN_PHONE_NUMBERS: List[str] = []
+    # ADMIN (Consolidated above)
 
     # Allow extra fields for flexibility
     model_config = {
