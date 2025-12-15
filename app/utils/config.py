@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     META_WHATSAPP_TOKEN: Optional[str] = None
     META_WHATSAPP_PHONE_ID: Optional[str] = None
     META_WHATSAPP_BUSINESS_ID: Optional[str] = None
-    META_VERIFY_TOKEN: str = "token"
+    META_VERIFY_TOKEN: str = None
     META_INSTAGRAM_TOKEN: Optional[str] = None
     META_INSTAGRAM_ACCOUNT_ID: Optional[str] = None
     def INSTAGRAM_INGESTION_ENABLED(self) -> bool:

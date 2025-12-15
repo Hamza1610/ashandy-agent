@@ -36,27 +36,63 @@ async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
         if not payload.entry or not payload.entry[0].changes:
             return {"status": "no_entry"}
 
-        value = payload.entry[0].changes[0].value
+        entry = payload.entry[0]
+        if not entry.changes:
+            return {"status": "no_changes"}
+
+        changes = entry.changes[0]
+        value = changes.value
+        
+        if not value:
+             return {"status": "no_value"}
+             
         messages = value.messages
         if not messages:
             return {"status": "no_messages"}
 
         message = messages[0]
-        from_phone = message.get("from")
+        from_phone = message.from_ # The user's phone number
+        
+        # Extract message content
+        content = ""
         msg_type = message.type
         
         user_message_content = ""
         image_url = None
         
         if msg_type == "text":
-            user_message_content = message.get("text", {}).get("body", "")
+            text_obj = message.text
+            user_message_content = text_obj.body if text_obj else ""
         elif msg_type == "image":
-            img_obj = message.get("image", {})
-            user_message_content = img_obj.get("caption", "")
-            media_id = img_obj.get("id")
-            if media_id:
-                image_url = await meta_service.get_media_url(media_id)
-
+            # Handle Image
+            img_obj = message.image
+            media_id = img_obj.id if img_obj else None
+            caption = img_obj.caption if img_obj else ""
+            user_message_content = caption or "" # Use caption as text context
+            
+            # Resolve URL
+            fetched_url = await meta_service.get_media_url(media_id)
+            if fetched_url:
+                image_url = fetched_url
+            else:
+                logger.warning(f"Could not resolve URL for media {media_id}")
+        else:
+            logger.warning(f"⚠️ Cannot extract message. Type: {msg_type}, Has text: {hasattr(message, 'text')}, Has image: {hasattr(message, 'image')}")
+            
+        logger.info(f"📝 Final user_message_content: '{user_message_content}' (length: {len(user_message_content)})")
+            
+        # Construct Input State
+        # We need to pass the image URL in a way the Router understands.
+        # Router checks: additional_kwargs["image_url"] 
+        
+        msg_kwargs = {}
+        if image_url:
+            msg_kwargs["image_url"] = image_url
+            # Also constructing multimodal content block for LangChain purity
+            # content = [{"type": "text", "text": user_message_content}, {"type": "image_url", "image_url": {"url": image_url}}]
+        
+        logger.info(f"Webhook: Creating HumanMessage with content: '{user_message_content[:100] if user_message_content else 'EMPTY'}'")
+        
         human_msg = HumanMessage(content=user_message_content)
         if image_url:
             human_msg.additional_kwargs["image_url"] = image_url
