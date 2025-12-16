@@ -83,7 +83,7 @@ graph TB
 ---
 
 ## 🚀 Key Features
-###🛒 Conversational Commerce & Visual Search
+### 🛒 Conversational Commerce & Visual Search
 * **Llama 4 Vision:** Users upload images; the system uses **Meta SAM + DINOv2** embeddings to find the exact product in the inventory.
 
 * **Cross-Platform:** Works seamlessly on **WhatsApp** and **Instagram** via Meta Graph API.
@@ -149,7 +149,7 @@ ashandy-agent/
 ```
 
 ## ⚡ Quick Start
-###1. Start the Backend
+### 1. Start the Backend
 ```bash
 # Activate environment
 conda activate meta_ai
@@ -159,7 +159,7 @@ uvicorn app.main:app --reload --port 8000
 
 ```
 
-###2. Start MCP Servers*Run these in separate terminals:*
+### 2. Start MCP Servers*Run these in separate terminals:*
 
 ```bash
 python mcp-servers/pos-server/ashandy_pos_server.py
@@ -167,7 +167,7 @@ python mcp-servers/payment-server/ashandy_payment_server.py
 
 ```
 
-###3. Test the API
+### 3. Test the API
 ```bash
 curl -X POST http://localhost:8000/api/test/message \
   -H "Content-Type: application/json" \
@@ -177,7 +177,8 @@ curl -X POST http://localhost:8000/api/test/message \
 
 ---
 
-## 👥 Team HAI* **Hamza Muhammad:** Technical Lead & AI Architect
+## 👥 Team HAI
+* **Hamza Muhammad:** Technical Lead & AI Architect
 * **Israel Ayeni:** Product Manager & Data Engineer
 * **Ibrahim Abdulwahab:** Growth Lead & Integration Specialist
 
