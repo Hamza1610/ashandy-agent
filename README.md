@@ -4,6 +4,7 @@
 ![Version](https://img.shields.io/badge/Version-2.0-blue.svg) ![Status](https://img.shields.io/badge/Status-Production--Ready-green.svg) ![Stack](https://img.shields.io/badge/Tech-LangGraph%20%7C%20FastAPI%20%7C%20MCP-orange.svg)
 
 **Winner of the Meta AI Developer Academy Hackathon 2025 (Loading...)**
+
 **Built by Team HAI (Beneficiaries of RAIN Nigeria)**
 
 ---
@@ -63,7 +64,7 @@ graph TB
 
 ---
 
-##🔌 MCP Server Architecture (Model Context Protocol)We utilize the **Model Context Protocol (MCP)** to decouple our LLM agents from our backend tools. We run 4 distinct FastMCP Servers:
+# 🔌 MCP Server Architecture (Model Context Protocol)We utilize the **Model Context Protocol (MCP)** to decouple our LLM agents from our backend tools. We run 4 distinct FastMCP Servers:
 
 | Server | Port | Responsibilities | Tools Exposed |
 | --- | --- | --- | --- |
@@ -74,7 +75,7 @@ graph TB
 
 ---
 
-##🚀 Key Features###🛒 Conversational Commerce & Visual Search* **Llama 4 Vision:** Users upload images; the system uses **Meta SAM + DINOv2** embeddings to find the exact product in the inventory.
+# 🚀 Key Features###🛒 Conversational Commerce & Visual Search* **Llama 4 Vision:** Users upload images; the system uses **Meta SAM + DINOv2** embeddings to find the exact product in the inventory.
 * **Cross-Platform:** Works seamlessly on **WhatsApp** and **Instagram** via Meta Graph API.
 * **Federated Inventory:** "Ghost Stock" prevention; syncs Instagram posts to physical POS instantly.
 
@@ -86,17 +87,17 @@ graph TB
 
 * **Automated Dispatch:** Sends SMS to riders via Twilio upon payment confirmation.
 
-###🛡️ Security & Compliance (NDPR)* **7-Layer Defense:** Includes Rate Limiting (60/min), HMAC Signature verification, and Prompt Injection shields.
+# 🛡️ Security & Compliance (NDPR)* **7-Layer Defense:** Includes Rate Limiting (60/min), HMAC Signature verification, and Prompt Injection shields.
 * **Privacy First:** `/delete_memory` endpoint allows users to erase their semantic data (Right to be Forgotten).
 * **Llama Guard:** Filters toxic inputs and outputs.
 
-###⚡ Performance Optimizations* **Semantic Caching:** Redis hash-based lookup reduces LLM calls by **50%**.
+# ⚡ Performance Optimizations* **Semantic Caching:** Redis hash-based lookup reduces LLM calls by **50%**.
 * **LLM Failover:** Primary: **Meta Llama 4** → Fallback: **OpenRouter**.
 * **Circuit Breakers:** Graceful degradation if external APIs (Paystack/Meta) fail.
 
 ---
 
-##🛠️ Technology Stack* **Orchestration:** LangGraph + LangChain
+# 🛠️ Technology Stack* **Orchestration:** LangGraph + LangChain
 * **Backend:** Python FastAPI
 * **LLM Inference:** Meta Llama 4 (70B/8B)
 * **Database:**
@@ -109,7 +110,7 @@ graph TB
 
 ---
 
-##📂 Project Structure```text
+# 📂 Project Structure```text
 ashandy-agent/
 ├── app/
 │   ├── agents/                 # The 9 Autonomous Agents
@@ -129,7 +130,9 @@ ashandy-agent/
 
 ```
 
-##⚡ Quick Start###1. Start the Backend```bash
+#⚡ Quick Start
+###1. Start the Backend
+```bash
 # Activate environment
 conda activate meta_ai
 
@@ -155,7 +158,7 @@ curl -X POST http://localhost:8000/api/test/message \
 
 ---
 
-##👥 Team HAI
+# 👥 Team HAI
 * **Hamza Muhammad:** Technical Lead & AI Architect
 * **Israel Ayeni:** Product Manager & Data Engineer
 * **Ibrahim Abdulwahab:** Growth Lead & Integration Specialist
