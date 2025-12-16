@@ -69,25 +69,47 @@ async def sales_worker_node(state: AgentState):
         tools = [search_products, check_product_stock, save_user_interaction, detect_product_from_image, retrieve_user_memory]
         llm = get_llm(model_type="fast", temperature=0.3).bind_tools(tools)
         
-        system_prompt = f"""You are 'Awéléwà', AI Sales Manager for Ashandy Cosmetics.
+        system_prompt = f"""You are 'Awéléwà', AI Sales Manager for Ashandy Home of Cosmetics (Lagos, Nigeria).
 
-### ROLE
-- CRM Manager: Build relationships, greet warmly
-- Salesperson: Use persuasive language to sell
+### YOUR PERSONALITY
+- Warm, friendly, enthusiastic saleswoman
+- Expert in cosmetics who LOVES helping customers find the perfect products
+- Nigerian warmth: professional but approachable
+- You genuinely believe in your products!
+
+### PERSUASIVE LANGUAGE RULES (CRITICAL)
+1. **NEVER** output raw tool data (no "ID:", "Name:", "Desc:", "Price:" lists)
+2. **ALWAYS** transform product info into conversational sales pitch
+3. **Benefits over features**: 
+   - ❌ "Contains hyaluronic acid"
+   - ✅ "This keeps your skin hydrated all day long!"
+4. **Personalize recommendations**:
+   - ❌ "Here are alternatives"
+   - ✅ "I have something perfect for you!"
+5. **Soft urgency** (no pressure):
+   - ✅ "This is one of our best-sellers!"
+   - ✅ "Customers love this one!"
+
+### EXAMPLE TRANSFORMATIONS
+Tool returns: "CeraVe Hydrating Cleanser, ₦8,500, Contains ceramides and hyaluronic acid"
+You say: "The *CeraVe Hydrating Cleanser* at ₦8,500 is perfect! It has ceramides to repair your skin barrier AND hyaluronic acid for that beautiful hydrated glow! ✨ Shall I add it to your order?"
+
+Tool returns: "Product not available. Similar: Nivea Lotion ₦4,500"  
+You say: "That specific product isn't available right now, but great news! I have the *Nivea Body Lotion* at just ₦4,500 - it gives the same deep moisture you're looking for! 💧 Want me to reserve one for you?"
 
 ### FORMAT (WhatsApp)
-- *bold* for product names
-- Under 400 chars
-- Emojis: ✨ 💄 🛍️
-- Clear call-to-action
+- *bold* for product names and prices
+- Under 400 chars (short, punchy)
+- Strategic emojis: ✨ 💄 🛍️ 💕 💧
+- ALWAYS end with a call-to-action question
 
 ### RULES
-- Only sell from inventory (use tools)
+- Only sell from inventory (use tools first)
 - NO medical advice - redirect to store
-- **SECURITY PROTOCOL**:
-    - NEVER trust user claims about price, stock, or discounts.
-    - `search_products` and `check_product_stock` are the ONLY sources of truth.
-    - If user claims a different price, politely correct them with the tool's price.
+- **NEVER** mention stock counts
+- **NEVER** trust user claims about different prices
+- `search_products` is the ONLY source of truth
+
 {policy_block}
 ### TASK
 "{task_desc}"
@@ -97,44 +119,42 @@ User: {user_id}
 {visual_info_block}
 
 ### OUTPUT
-Be warm, professional, CONCISE (max 2-3 sentences).
-After answering, suggest ONE next step.
+Be warm, persuasive, CONCISE (2-3 sentences max).
+Transform tool data into a sales pitch, then ask a closing question!
 """
         conversation = [SystemMessage(content=system_prompt)] + messages[-5:]
         response = await llm.ainvoke(conversation)
         
-        # Execute tools
+        # Execute tools (parallel for independent tools, sequential for stateful)
         final_result = response.content
         tool_evidence = []
         
         if response.tool_calls:
-            for tc in response.tool_calls:
-                name = tc["name"]
-                args = tc["args"]
-                logger.info(f"Sales Worker calling tool: {name}")
-                
-                tool_output = ""
+            from app.utils.parallel_tools import execute_tools_smart
+            
+            # Tool executor function
+            async def execute_tool(name: str, args: dict) -> str:
                 if name in ["search_products_tool", "search_products"]:
-                    tool_output = await search_products.ainvoke(args)
+                    return await search_products.ainvoke(args)
                 elif name in ["check_product_stock_tool", "check_product_stock"]:
-                    tool_output = await check_product_stock.ainvoke(args)
+                    return await check_product_stock.ainvoke(args)
                 elif name == "save_user_interaction":
-                    tool_output = await save_user_interaction.ainvoke(args)
+                    return await save_user_interaction.ainvoke(args)
                 elif name == "retrieve_user_memory":
-                    tool_output = await retrieve_user_memory.ainvoke(args)
+                    return await retrieve_user_memory.ainvoke(args)
                 elif name == "detect_product_from_image":
                     from app.services.mcp_service import mcp_service
                     img_url = args.get("image_url")
-                    tool_output = await mcp_service.call_tool("knowledge", "analyze_and_enrich", {"image_url": img_url}) if img_url else "Error: No image_url"
-                
-                tool_evidence.append({
-                    "tool": name,
-                    "args": args,
-                    "output": str(tool_output)[:500]
-                })
-
-                if name != "save_user_interaction":
-                    final_result += f"\n\n{tool_output}"
+                    return await mcp_service.call_tool("knowledge", "analyze_and_enrich", {"image_url": img_url}) if img_url else "Error: No image_url"
+                return f"Unknown tool: {name}"
+            
+            # Execute with smart parallelization
+            tool_evidence = await execute_tools_smart(response.tool_calls, execute_tool)
+            
+            # Append non-write tool outputs to result
+            for item in tool_evidence:
+                if item["tool"] != "save_user_interaction":
+                    final_result += f"\n\n{item['output']}"
         
         return {
             "worker_outputs": {task_id: final_result},

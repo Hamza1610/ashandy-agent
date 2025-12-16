@@ -53,10 +53,18 @@ class WhatsAppWebhookPayload(BaseModel):
 
 # --- Instagram Schemas ---
 
+class InstagramReplyTo(BaseModel):
+    """Context for story/post replies."""
+    mid: Optional[str] = None  # Message ID being replied to
+    story: Optional[Dict[str, Any]] = None  # Story context (url, id)
+    post: Optional[Dict[str, Any]] = None  # Post context (url, id)
+
 class InstagramMessage(BaseModel):
     mid: str
     text: Optional[str] = None
-    attachments: Optional[List[Dict[str, Any]]] = None # Simplified for now
+    attachments: Optional[List[Dict[str, Any]]] = None
+    reply_to: Optional[InstagramReplyTo] = None  # Story/post reply context
+    is_echo: Optional[bool] = None  # Skip echoed messages
 
 class InstagramMessagingEvent(BaseModel):
     sender: Dict[str, str]

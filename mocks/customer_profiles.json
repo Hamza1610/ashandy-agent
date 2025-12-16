@@ -1,0 +1,48 @@
+{
+    "sample_customers": [
+        {
+            "user_id": "234801XXXXXXX",
+            "name": "Adaeze",
+            "preferred_categories": [
+                "skincare",
+                "makeup"
+            ],
+            "purchase_history": [
+                "CeraVe Cleanser",
+                "MAC Lipstick"
+            ],
+            "total_orders": 5,
+            "loyalty_tier": "gold",
+            "notes": "Prefers morning delivery"
+        },
+        {
+            "user_id": "234802XXXXXXX",
+            "name": "Olumide",
+            "preferred_categories": [
+                "body_care"
+            ],
+            "purchase_history": [
+                "Nivea Lotion",
+                "Dove Beauty Bar"
+            ],
+            "total_orders": 2,
+            "loyalty_tier": "bronze",
+            "notes": "New customer"
+        },
+        {
+            "user_id": "234803XXXXXXX",
+            "name": "Chioma",
+            "preferred_categories": [
+                "skincare",
+                "accessories"
+            ],
+            "purchase_history": [
+                "The Ordinary Serum",
+                "Ring Light"
+            ],
+            "total_orders": 8,
+            "loyalty_tier": "platinum",
+            "notes": "VIP customer, always pays promptly"
+        }
+    ]
+}

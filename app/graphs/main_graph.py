@@ -9,6 +9,7 @@ from app.agents.planner_agent import planner_agent_node
 from app.agents.sales_worker import sales_worker_node
 from app.agents.admin_worker import admin_worker_node, admin_email_alert_node
 from app.agents.payment_worker import payment_worker_node
+from app.agents.support_worker import support_worker_node
 from app.agents.reviewer_agent import reviewer_agent_node
 from app.agents.conflict_resolver_agent import conflict_resolver_node
 from langchain_core.messages import AIMessage
@@ -59,15 +60,16 @@ def dispatcher_edge(state: AgentState):
     
     if not next_workers:
         all_complete = all(task_statuses.get(s["id"]) in ["approved", "failed"] for s in plan)
-        # Gap 3 Fix: Route to conflict_resolver before output_supervisor
         return "conflict_resolver" if all_complete else "end_fail"
-            
+    
+    # Route to first available worker (supports sales, admin, payment, support)
     return next_workers
 
 
 def supervisor_router(state: AgentState):
     """Edge function: routes based on supervisor verdict."""
     verdict = state.get("supervisor_verdict", "ignore")
+    logger.info(f"🔀 SUPERVISOR_ROUTER: verdict='{verdict}'")
     if verdict == "safe":
         return "planner"
     elif verdict == "cached":
@@ -75,6 +77,7 @@ def supervisor_router(state: AgentState):
         return "output_supervisor"
     elif verdict == "block":
         return "end_block"
+    logger.warning(f"🔀 SUPERVISOR_ROUTER: Routing to end_ignore (unexpected verdict)")
     return "end_ignore"
 
 
@@ -97,12 +100,14 @@ workflow.add_node("dispatcher", dispatcher_node)
 workflow.add_node("sales_worker", sales_worker_node)
 workflow.add_node("admin_worker", admin_worker_node)
 workflow.add_node("payment_worker", payment_worker_node)
+workflow.add_node("support_worker", support_worker_node)
 workflow.add_node("email_alert", admin_email_alert_node)
 
 # Scoped reviewers
 workflow.add_node("sales_reviewer", partial(reviewer_agent_node, worker_scope="sales_worker"))
 workflow.add_node("admin_reviewer", partial(reviewer_agent_node, worker_scope="admin_worker"))
 workflow.add_node("payment_reviewer", partial(reviewer_agent_node, worker_scope="payment_worker"))
+workflow.add_node("support_reviewer", partial(reviewer_agent_node, worker_scope="support_worker"))
 
 # Output supervisor
 workflow.add_node("output_supervisor", output_supervisor_node)
@@ -133,6 +138,7 @@ workflow.add_conditional_edges(
         "sales_worker": "sales_worker",
         "admin_worker": "admin_worker",
         "payment_worker": "payment_worker",
+        "support_worker": "support_worker",
         "conflict_resolver": "conflict_resolver",
         "end_fail": "email_alert"
     }
@@ -142,11 +148,13 @@ workflow.add_conditional_edges(
 workflow.add_edge("sales_worker", "sales_reviewer")
 workflow.add_edge("admin_worker", "admin_reviewer")
 workflow.add_edge("payment_worker", "payment_reviewer")
+workflow.add_edge("support_worker", "support_reviewer")
 
 # Reviewer -> Dispatcher loop
 workflow.add_edge("sales_reviewer", "dispatcher")
 workflow.add_edge("admin_reviewer", "dispatcher")
 workflow.add_edge("payment_reviewer", "dispatcher")
+workflow.add_edge("support_reviewer", "dispatcher")
 
 # Conflict Resolution (Gap 3 Fix)
 workflow.add_node("conflict_resolver", conflict_resolver_node)

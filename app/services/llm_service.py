@@ -30,7 +30,7 @@ class MultiProviderLLM:
                 "fast": "meta-llama/llama-4-scout-17b-16e-instruct",
                 "powerful": "meta-llama/llama-4-maverick-17b-128e-instruct",
                 "guard": "meta-llama/llama-guard-4-12b",
-                "versatile": "meta-llama/llama-3.3-70b-versatile"
+                "versatile": "llama-3.3-70b-versatile"
             },
             "timeout": 30
         },
@@ -51,7 +51,7 @@ class MultiProviderLLM:
             "models": {
                 "fast": "meta-llama/llama-3.3-70b-instruct",
                 "powerful": "meta-llama/llama-3.3-70b-instruct",
-                "guard": "meta-llama/llama-3.3-70b-instruct",  # No guard model, use standard
+                "guard": "meta-llama/llama-guard-2-8b", 
                 "versatile": "meta-llama/llama-3.3-70b-instruct"
             },
             "timeout": 60
@@ -61,18 +61,34 @@ class MultiProviderLLM:
     def __init__(self):
         self.providers = [LLMProvider.GROQ, LLMProvider.TOGETHER, LLMProvider.OPENROUTER]
         self.failure_counts = {p: 0 for p in self.providers}
+        self.last_failure_time = {p: 0 for p in self.providers}  # Unix timestamp
         self.max_failures_before_skip = 3
+        self.circuit_cooldown_seconds = 60  # Try again after 60 seconds
     
     def _get_api_key(self, provider: LLMProvider) -> Optional[str]:
         """Get API key for a provider."""
         key_attr = self.PROVIDER_CONFIG[provider]["key_attr"]
         return getattr(settings, key_attr, None)
     
+    def _is_circuit_open(self, provider: LLMProvider) -> bool:
+        """Check if circuit breaker is open (should skip this provider)."""
+        import time
+        if self.failure_counts[provider] >= self.max_failures_before_skip:
+            # Check if cooldown has passed
+            elapsed = time.time() - self.last_failure_time[provider]
+            if elapsed >= self.circuit_cooldown_seconds:
+                # Half-open state: reset failures and try again
+                logger.info(f"Circuit breaker half-open for {provider.value} - attempting recovery")
+                self.failure_counts[provider] = 0
+                return False
+            return True  # Still in cooldown, skip this provider
+        return False  # Circuit closed, provider available
+    
     def _get_ordered_providers(self) -> List[LLMProvider]:
-        """Order providers by failure count (least failures first), skip if too many failures."""
+        """Order providers by failure count (least failures first), skip if circuit open."""
         available = [
             p for p in self.providers 
-            if self._get_api_key(p) and self.failure_counts[p] < self.max_failures_before_skip
+            if self._get_api_key(p) and not self._is_circuit_open(p)
         ]
         return sorted(available, key=lambda p: self.failure_counts[p])
     
@@ -123,9 +139,11 @@ class MultiProviderLLM:
                 return response
                 
             except Exception as e:
+                import time
                 last_error = e
                 logger.warning(f"{provider.value} failed: {type(e).__name__}: {e}")
                 self.failure_counts[provider] += 1
+                self.last_failure_time[provider] = time.time()
                 continue
         
         # All providers failed
@@ -163,13 +181,17 @@ class MultiProviderLLM:
         if json_mode:
             model_kwargs["response_format"] = {"type": "json_object"}
         
-        llm = ChatGroq(
-            groq_api_key=settings.LLAMA_API_KEY,
-            model_name=model,
-            temperature=temperature,
-            timeout=timeout,
-            model_kwargs=model_kwargs if model_kwargs else None
-        )
+        # Build kwargs dynamically to avoid passing None
+        groq_kwargs = {
+            "groq_api_key": settings.LLAMA_API_KEY,
+            "model_name": model,
+            "temperature": temperature,
+            "timeout": timeout,
+        }
+        if model_kwargs:
+            groq_kwargs["model_kwargs"] = model_kwargs
+        
+        llm = ChatGroq(**groq_kwargs)
         
         # Convert tuples to LangChain messages
         lc_messages = []
@@ -288,13 +310,17 @@ def get_llm(model_type: str = "fast", temperature: float = 0.3, json_mode: bool 
     if json_mode:
         model_kwargs["response_format"] = {"type": "json_object"}
     
-    return ChatGroq(
-        groq_api_key=settings.LLAMA_API_KEY,
-        model_name=model_name,
-        temperature=temperature,
-        timeout=config["timeout"],
-        model_kwargs=model_kwargs if model_kwargs else None
-    )
+    # Build kwargs dynamically to avoid passing None
+    groq_kwargs = {
+        "groq_api_key": settings.LLAMA_API_KEY,
+        "model_name": model_name,
+        "temperature": temperature,
+        "timeout": config["timeout"],
+    }
+    if model_kwargs:
+        groq_kwargs["model_kwargs"] = model_kwargs
+    
+    return ChatGroq(**groq_kwargs)
 
 
 async def invoke_with_fallback(

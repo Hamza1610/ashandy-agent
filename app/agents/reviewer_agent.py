@@ -75,9 +75,14 @@ async def reviewer_agent_node(state: AgentState, worker_scope: str = None):
 {evidence_block}
 
 ### AUDIT CRITERIA
-A. **Accuracy**: Does output match evidence? Reject if facts don't match.
-B. **Completeness**: Did worker answer the specific task?
+A. **Accuracy**: Does output match evidence? Reject if prices/facts contradict evidence.
+B. **Completeness**: Did worker attempt to address the task?
 C. **Safety**: No JSON/code traces? Polite response?
+
+### SPECIAL RULES (IMPORTANT)
+- **SALES UPSELLING**: If exact product unavailable but worker recommended SIMILAR products, this is VALID behavior → APPROVE
+- "Similar products" or "alternatives" when exact match not found → APPROVE
+- Worker must NOT invent products not in evidence
 
 ### OUTPUT (JSON ONLY)
 {{"verdict": "APPROVE" | "REJECT", "critique": "Reason if REJECT", "correction": "Optional fix"}}
@@ -85,7 +90,7 @@ C. **Safety**: No JSON/code traces? Polite response?
 **Rules:**
 - "No active task" → REJECT
 - Error traces → REJECT
-- Matches evidence → APPROVE
+- Matches evidence OR offers valid alternatives → APPROVE
 """
 
         response = await llm.ainvoke([SystemMessage(content=system_prompt)])

@@ -1,14 +1,26 @@
 """
 Ashandy Agent: FastAPI application entry point.
 """
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from app.utils.config import settings
 from app.routers import health, webhooks
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Rate limiter with custom key function (IP + user_id if available)
+def get_rate_limit_key(request: Request) -> str:
+    """Get rate limit key from user_id in body or IP address."""
+    # For webhooks, try to extract user_id from body
+    # For API calls, use IP address
+    return get_remote_address(request)
+
+limiter = Limiter(key_func=get_rate_limit_key)
 
 # Optional imports with graceful fallback
 try:
@@ -41,10 +53,23 @@ try:
 except ImportError:
     CACHE_SERVICE_AVAILABLE = False
 
+try:
+    from app.services.mcp_service import mcp_service
+    MCP_SERVICE_AVAILABLE = True
+except ImportError:
+    MCP_SERVICE_AVAILABLE = False
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifecycle: startup and shutdown events."""
+    # Configure structured logging first
+    try:
+        from app.utils.structured_logging import configure_logging
+        configure_logging()
+    except ImportError:
+        pass  # Fall back to default logging
+    
     logger.info(f"Starting {settings.APP_NAME}")
     
     if AUTO_MIGRATION_AVAILABLE:
@@ -61,6 +86,13 @@ async def lifespan(app: FastAPI):
             logger.info("✅ Scheduler started")
         except Exception as e:
             logger.warning(f"Scheduler failed: {e}")
+
+    # Initialize MCP connections (fixes shutdown errors)
+    if MCP_SERVICE_AVAILABLE:
+        try:
+            await mcp_service.initialize_all()
+        except Exception as e:
+            logger.error(f"MCP initialization failed: {e}")
     
     # Warm response cache with common FAQs
     if CACHE_SERVICE_AVAILABLE:
@@ -77,6 +109,10 @@ async def lifespan(app: FastAPI):
             shutdown_scheduler()
         except:
             pass
+            
+    if MCP_SERVICE_AVAILABLE:
+        await mcp_service.cleanup()
+        
     logger.info(f"Shutting down {settings.APP_NAME}")
 
 
@@ -95,6 +131,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Rate limiting setup
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Routers
 app.include_router(health.router, tags=["Health"])

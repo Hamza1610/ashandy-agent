@@ -159,24 +159,42 @@ async def run_auto_migration():
     """
     Run database migrations automatically.
     Creates all tables if they don't exist.
-    Safe to run multiple times (idempotent).
+    Executes each statement in a separate transaction to prevent cascade failures.
     """
     try:
-        async with engine.begin() as conn:
-            # Split SQL into individual statements and execute each
-            statements = [s.strip() for s in CREATE_TABLES_SQL.split(';') if s.strip()]
-            for stmt in statements:
-                if stmt and not stmt.startswith('--'):
-                    try:
-                        await conn.execute(text(stmt))
-                    except Exception as e:
-                        # Log but don't fail - some statements may already exist
-                        if "already exists" not in str(e).lower():
-                            logger.warning(f"Migration statement warning: {e}")
+        # Split SQL into individual statements
+        statements = [s.strip() for s in CREATE_TABLES_SQL.split(';') if s.strip()]
+        
+        logger.info(f"Starting auto-migration ({len(statements)} statements)...")
+        
+        for i, stmt in enumerate(statements):
+            # Clean statement of comments line by line
+            lines = [line for line in stmt.splitlines() if not line.strip().startswith('--')]
+            clean_stmt = '\n'.join(lines).strip()
             
-            logger.info("✅ Database auto-migration completed successfully.")
-            return True
+            if not clean_stmt:
+                continue
+
+            try:
+                # Use a separate transaction for each statement
+                async with engine.begin() as conn:
+                    await conn.execute(text(clean_stmt))
+            except Exception as e:
+                # Log specific errors but verify if it's critical
+                err_msg = str(e).lower()
+                if "already exists" in err_msg:
+                    logger.debug(f"Skipping existing entity: {err_msg.split('\\n')[0]}")
+                elif "relation" in err_msg and "does not exist" in err_msg:
+                    # Critical dependency missing?
+                    logger.error(f"❌ Dependency Error in migration step {i+1}: {e}")
+                    # We continue, hoping future retries or manual fixes solve it, 
+                    # but usually this implies out-of-order execution.
+                else:
+                    logger.warning(f"⚠️ Migration warning in step {i+1}: {e}")
+
+        logger.info("✅ Database auto-migration completed.")
+        return True
             
     except Exception as e:
-        logger.error(f"❌ Database auto-migration failed: {e}")
+        logger.error(f"❌ Database auto-migration fatal error: {e}")
         return False

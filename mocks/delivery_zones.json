@@ -1,0 +1,107 @@
+{
+    "zones": [
+        {
+            "zone_id": "ibadan_central",
+            "name": "Ibadan Central",
+            "areas": [
+                "Iyaganku",
+                "Bodija",
+                "U.I",
+                "Mokola",
+                "Dugbe",
+                "Ring Road"
+            ],
+            "base_fee": 1000,
+            "per_item_fee": 0,
+            "estimated_days": 1,
+            "notes": "Same-day delivery available"
+        },
+        {
+            "zone_id": "ibadan_extended",
+            "name": "Ibadan Extended",
+            "areas": [
+                "Oluyole",
+                "Apata",
+                "Ojoo",
+                "Moniya",
+                "Iwo Road",
+                "Challenge"
+            ],
+            "base_fee": 1500,
+            "per_item_fee": 0,
+            "estimated_days": 1,
+            "notes": "Next-day delivery guaranteed"
+        },
+        {
+            "zone_id": "lagos_mainland",
+            "name": "Lagos Mainland",
+            "areas": [
+                "Yaba",
+                "Surulere",
+                "Ikeja",
+                "Maryland",
+                "Ogba",
+                "Oshodi"
+            ],
+            "base_fee": 3500,
+            "per_item_fee": 200,
+            "estimated_days": 2,
+            "notes": "Fragile items may take extra day"
+        },
+        {
+            "zone_id": "lagos_island",
+            "name": "Lagos Island",
+            "areas": [
+                "Victoria Island",
+                "Lekki",
+                "Ikoyi",
+                "Ajah",
+                "Banana Island"
+            ],
+            "base_fee": 4500,
+            "per_item_fee": 250,
+            "estimated_days": 2,
+            "notes": "Premium delivery service"
+        },
+        {
+            "zone_id": "southwest",
+            "name": "Southwest Nigeria",
+            "areas": [
+                "Abeokuta",
+                "Osogbo",
+                "Ife",
+                "Akure",
+                "Ado-Ekiti",
+                "Ilorin"
+            ],
+            "base_fee": 3000,
+            "per_item_fee": 150,
+            "estimated_days": 3,
+            "notes": "Inter-state delivery"
+        },
+        {
+            "zone_id": "nationwide",
+            "name": "Nationwide",
+            "areas": [
+                "Abuja",
+                "Port Harcourt",
+                "Kano",
+                "Benin",
+                "Calabar",
+                "Enugu"
+            ],
+            "base_fee": 5000,
+            "per_item_fee": 300,
+            "estimated_days": 5,
+            "notes": "Courier service, tracking available"
+        }
+    ],
+    "default_zone": {
+        "zone_id": "unknown",
+        "name": "Other Areas",
+        "base_fee": 4000,
+        "per_item_fee": 200,
+        "estimated_days": 5,
+        "notes": "Contact us for exact delivery timeline"
+    }
+}

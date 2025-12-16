@@ -2,6 +2,7 @@
 Meta Service: WhatsApp and Instagram messaging via Meta Graph API.
 """
 import httpx
+from typing import Optional
 from app.utils.config import settings
 import logging
 
@@ -100,6 +101,33 @@ class MetaService:
             except Exception as e:
                 logger.error(f"Failed to fetch IG posts: {e}")
                 return []
+
+    async def get_instagram_media(self, media_id: str) -> Optional[dict]:
+        """
+        Fetch specific Instagram media details (post/story) by ID.
+        Used to get context when user replies to a story or post.
+        
+        Returns: {id, caption, media_type, media_url, permalink} or None
+        """
+        if not self.ig_token or not media_id:
+            return None
+        
+        url = f"https://graph.facebook.com/v18.0/{media_id}"
+        params = {
+            "fields": "id,caption,media_type,media_url,permalink,timestamp",
+            "access_token": self.ig_token
+        }
+        
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(url, params=params)
+                response.raise_for_status()
+                data = response.json()
+                logger.info(f"Fetched Instagram media {media_id}: {data.get('media_type')}")
+                return data
+            except Exception as e:
+                logger.error(f"Failed to fetch Instagram media {media_id}: {e}")
+                return None
 
     async def mark_whatsapp_message_read(self, message_id: str):
         """Mark message as read for instant feedback."""
