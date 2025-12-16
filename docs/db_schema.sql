@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS customer_profiles (
     last_interaction TIMESTAMPTZ,
     preferred_categories JSONB DEFAULT '{}',
     retention_score FLOAT DEFAULT 0.5,
+    lead_score INT DEFAULT 0,              -- RFM-based lead scoring (0-100)
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

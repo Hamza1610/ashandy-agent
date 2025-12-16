@@ -13,7 +13,7 @@ Changes to `main_graph.py` aren't taking effect. Uvicorn's auto-reload isn't rel
    ```
 3. **Restart uvicorn**:
    ```powershell
-   uvicorn main:app --reload --env-file .env --log-level debug
+   uvicorn app.main:app --reload --env-file .env --log-level debug
    ```
 4. **Wait for "Application startup complete"**
 5. **Send ONE WhatsApp message**: "search for lipstick"

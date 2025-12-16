@@ -2,7 +2,7 @@
 
 ## Step 1: Start Server
 ```powershell
-uvicorn main:app --reload --env-file .env
+uvicorn app.main:app --reload --env-file .env
 ```
 
 ## Step 2: Test via WhatsApp

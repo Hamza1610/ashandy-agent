@@ -9,7 +9,7 @@ The FastAPI server works exactly as before:
 ```bash
 python main.py
 # or
-uvicorn main:app --reload
+uvicorn app.main:app --reload
 ```
 
 ### WhatsApp Integration

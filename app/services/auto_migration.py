@@ -87,9 +87,13 @@ CREATE TABLE IF NOT EXISTS customer_profiles (
     last_interaction TIMESTAMPTZ,
     preferred_categories JSONB DEFAULT '{}',
     retention_score FLOAT DEFAULT 0.5,
+    lead_score INT DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Migration: Add lead_score column to existing databases
+ALTER TABLE customer_profiles ADD COLUMN IF NOT EXISTS lead_score INT DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS daily_summaries (
     date DATE PRIMARY KEY,
