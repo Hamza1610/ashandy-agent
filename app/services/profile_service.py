@@ -192,6 +192,103 @@ class ProfileService:
         except Exception as e:
             logger.error(f"Failed to get profiles for period: {e}")
             return []
+    
+    async def compute_lead_score(self, user_id: str) -> int:
+        """
+        Compute lead score (0-100) using RFM model.
+        
+        Factors:
+        - Recency (40%): How recently they interacted
+        - Frequency (30%): Number of orders
+        - Monetary (30%): Total purchase value
+        
+        High score = high-priority lead
+        """
+        try:
+            async with AsyncSessionLocal() as session:
+                query = text("""
+                    SELECT 
+                        total_purchases, 
+                        order_count, 
+                        message_count,
+                        last_interaction,
+                        avg_sentiment
+                    FROM customer_profiles 
+                    WHERE user_id = :user_id
+                """)
+                result = await session.execute(query, {"user_id": user_id})
+                row = result.fetchone()
+                
+                if not row:
+                    return 0
+                
+                total_purchases = row[0] or 0
+                order_count = row[1] or 0
+                message_count = row[2] or 0
+                last_interaction = row[3]
+                avg_sentiment = row[4] or 0
+                
+                # RECENCY SCORE (0-40)
+                recency_score = 40
+                if last_interaction:
+                    days_since = (datetime.now() - last_interaction).days
+                    if days_since > 30:
+                        recency_score = max(0, 40 - (days_since - 30))
+                    elif days_since > 7:
+                        recency_score = 35
+                    elif days_since > 1:
+                        recency_score = 38
+                    else:
+                        recency_score = 40
+                
+                # FREQUENCY SCORE (0-30)
+                frequency_score = min(30, order_count * 5)  # 5 points per order, max 30
+                
+                # MONETARY SCORE (0-30)
+                # Scale: 0-25k = 0-10, 25k-100k = 10-20, 100k+ = 20-30
+                if total_purchases >= 100000:
+                    monetary_score = 30
+                elif total_purchases >= 25000:
+                    monetary_score = 10 + min(20, (total_purchases - 25000) / 3750)
+                else:
+                    monetary_score = min(10, total_purchases / 2500)
+                
+                # BONUS: Positive sentiment adds up to 5 points
+                sentiment_bonus = max(0, avg_sentiment * 5)
+                
+                total_score = min(100, int(recency_score + frequency_score + monetary_score + sentiment_bonus))
+                
+                # Update score in database
+                await session.execute(text("""
+                    UPDATE customer_profiles 
+                    SET lead_score = :score, updated_at = NOW()
+                    WHERE user_id = :user_id
+                """), {"score": total_score, "user_id": user_id})
+                await session.commit()
+                
+                logger.info(f"Lead score for {user_id}: {total_score} (R:{int(recency_score)}, F:{int(frequency_score)}, M:{int(monetary_score)})")
+                return total_score
+                
+        except Exception as e:
+            logger.error(f"Failed to compute lead score: {e}")
+            return 0
+    
+    async def get_high_value_leads(self, min_score: int = 70) -> list:
+        """Get customers with lead score above threshold for targeted marketing."""
+        try:
+            async with AsyncSessionLocal() as session:
+                query = text("""
+                    SELECT user_id, lead_score, total_purchases, order_count, last_interaction
+                    FROM customer_profiles
+                    WHERE lead_score >= :min_score
+                    ORDER BY lead_score DESC
+                    LIMIT 50
+                """)
+                result = await session.execute(query, {"min_score": min_score})
+                return [dict(row._mapping) for row in result.fetchall()]
+        except Exception as e:
+            logger.error(f"Failed to get high-value leads: {e}")
+            return []
 
 
 # Singleton instance

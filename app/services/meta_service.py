@@ -2,11 +2,42 @@
 Meta Service: WhatsApp and Instagram messaging via Meta Graph API.
 """
 import httpx
+import asyncio
 from typing import Optional
+from functools import wraps
 from app.utils.config import settings
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def async_retry(max_attempts: int = 3, base_delay: float = 1.0, max_delay: float = 10.0):
+    """
+    Async retry decorator with exponential backoff.
+    
+    Args:
+        max_attempts: Maximum number of retry attempts
+        base_delay: Initial delay in seconds
+        max_delay: Maximum delay between retries
+    """
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(max_attempts):
+                try:
+                    return await func(*args, **kwargs)
+                except (httpx.HTTPStatusError, httpx.TimeoutException) as e:
+                    last_exception = e
+                    if attempt < max_attempts - 1:
+                        delay = min(base_delay * (2 ** attempt), max_delay)
+                        logger.warning(f"Retry {attempt + 1}/{max_attempts} for {func.__name__} after {delay}s: {e}")
+                        await asyncio.sleep(delay)
+                    else:
+                        logger.error(f"All {max_attempts} retries failed for {func.__name__}: {e}")
+            raise last_exception
+        return wrapper
+    return decorator
 
 
 class MetaService:
@@ -23,17 +54,39 @@ class MetaService:
     async def send_whatsapp_text(self, to_phone: str, text: str):
         """Send text message via WhatsApp. Falls back to Twilio if Meta fails."""
         if self.wa_token and self.wa_phone_id:
+            # Try Meta API with retry
+            result = await self._send_whatsapp_with_retry(to_phone, text)
+            if result:
+                return result
+
+        # Twilio fallback (if Meta fails completely)
+        return await self._send_twilio_fallback(to_phone, text)
+    
+    async def _send_whatsapp_with_retry(self, to_phone: str, text: str, max_retries: int = 3):
+        """Internal method with retry logic for Meta WhatsApp API."""
+        last_error = None
+        for attempt in range(max_retries):
             try:
                 headers = {"Authorization": f"Bearer {self.wa_token}", "Content-Type": "application/json"}
                 payload = {"messaging_product": "whatsapp", "to": to_phone, "type": "text", "text": {"body": text}}
-                async with httpx.AsyncClient() as client:
+                async with httpx.AsyncClient(timeout=30.0) as client:
                     response = await client.post(self.wa_url, headers=headers, json=payload)
                     response.raise_for_status()
                     return {"status": "sent_via_meta", "provider": "meta", "response": response.json()}
-            except httpx.HTTPStatusError as e:
-                logger.error(f"Meta WhatsApp Error: {e.response.text}")
+            except (httpx.HTTPStatusError, httpx.TimeoutException, httpx.ConnectError) as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    delay = min(1.0 * (2 ** attempt), 10.0)  # Exponential backoff
+                    logger.warning(f"WhatsApp send retry {attempt + 1}/{max_retries} after {delay}s: {e}")
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(f"WhatsApp send failed after {max_retries} attempts: {e}")
             except Exception as e:
-                logger.error(f"Meta WhatsApp failed: {e}")
+                logger.error(f"Meta WhatsApp unexpected error: {e}")
+                return None
+        return None
+    
+    async def _send_twilio_fallback(self, to_phone: str, text: str):
 
         # Twilio fallback
         if settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN and settings.TWILIO_PHONE_NUMBER:

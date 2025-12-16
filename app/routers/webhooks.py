@@ -1,18 +1,35 @@
 """
 Webhooks Router: Handles incoming messages from WhatsApp, Instagram, and Paystack.
 """
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, Header
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.utils.config import settings
 from app.models.webhook_schemas import WhatsAppWebhookPayload, InstagramWebhookPayload
 import logging
+import hmac
+import hashlib
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 # Rate limiter for webhooks (60 messages/minute per IP)
 limiter = Limiter(key_func=get_remote_address)
+
+
+def verify_paystack_signature(payload: bytes, signature: str) -> bool:
+    """Verify Paystack webhook signature using HMAC SHA512."""
+    if not settings.PAYSTACK_SECRET_KEY:
+        logger.warning("PAYSTACK_SECRET_KEY not configured, skipping signature verification")
+        return True  # Allow in dev mode
+    
+    expected = hmac.new(
+        settings.PAYSTACK_SECRET_KEY.encode(),
+        payload,
+        hashlib.sha512
+    ).hexdigest()
+    
+    return hmac.compare_digest(expected, signature)
 
 
 @router.get("/whatsapp")
@@ -295,11 +312,19 @@ async def receive_instagram_webhook(payload: InstagramWebhookPayload):
 
 @router.post("/paystack")
 async def receive_paystack_webhook(request: Request):
-    """Handle Paystack payment webhooks."""
+    """Handle Paystack payment webhooks with signature verification."""
     from app.services.meta_service import meta_service
     from app.tools.db_tools import get_order_by_reference
 
     try:
+        # SECURITY: Verify Paystack signature
+        raw_payload = await request.body()
+        signature = request.headers.get("x-paystack-signature", "")
+        
+        if signature and not verify_paystack_signature(raw_payload, signature):
+            logger.warning("Paystack webhook signature verification failed!")
+            raise HTTPException(status_code=401, detail="Invalid signature")
+        
         payload = await request.json()
         event = payload.get("event")
         data = payload.get("data", {})

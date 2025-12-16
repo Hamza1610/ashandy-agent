@@ -43,4 +43,4 @@ if __name__ == "__main__":
     print(f"✅ Removed {pyc_count} .pyc files")
     
     print("\n🎉 Cache cleared! Restart your server now:")
-    print("   uvicorn main:app --reload --env-file .env")
+    print("   uvicorn app.main:app --reload --env-file .env")

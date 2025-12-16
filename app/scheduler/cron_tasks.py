@@ -65,6 +65,70 @@ async def weekly_feedback_learning_job():
         logger.error(f"Feedback learning failed: {e}")
 
 
+async def cart_abandonment_followup_job():
+    """
+    Follow up on abandoned carts (unpaid orders > 6 hours old).
+    
+    Runs every 6 hours to recover lost sales by sending reminder messages.
+    """
+    from app.services.db_service import AsyncSessionLocal
+    from app.services.meta_service import meta_service
+    from sqlalchemy import text
+    
+    try:
+        logger.info("Running cart abandonment follow-up...")
+        
+        async with AsyncSessionLocal() as session:
+            # Find unpaid orders older than 6 hours but less than 48 hours
+            result = await session.execute(text("""
+                SELECT order_id, user_id, total_amount, items, created_at
+                FROM orders
+                WHERE status = 'pending_payment'
+                AND created_at > NOW() - INTERVAL '48 hours'
+                AND created_at < NOW() - INTERVAL '6 hours'
+                AND (metadata->>'abandonment_reminder_sent') IS NULL
+                LIMIT 10
+            """))
+            
+            abandoned_orders = result.fetchall()
+            
+            if not abandoned_orders:
+                logger.info("No abandoned carts found.")
+                return
+            
+            recovered = 0
+            for order in abandoned_orders:
+                order_id, user_id, amount, items, created_at = order
+                
+                # Send WhatsApp reminder
+                message = (
+                    f"Hi! 👋 I noticed you started an order but didn't complete payment.\n\n"
+                    f"Your cart (₦{amount:,.0f}) is still here waiting for you! ✨\n\n"
+                    f"Ready to complete your purchase? Just reply 'Yes' and I'll send you the payment link! 💄"
+                )
+                
+                try:
+                    await meta_service.send_whatsapp_message(user_id, message)
+                    
+                    # Mark as reminded
+                    await session.execute(text("""
+                        UPDATE orders 
+                        SET metadata = COALESCE(metadata, '{}') || '{"abandonment_reminder_sent": true}'::jsonb
+                        WHERE order_id = :oid
+                    """), {"oid": order_id})
+                    
+                    recovered += 1
+                    logger.info(f"Sent abandonment reminder to {user_id} for order {order_id}")
+                except Exception as e:
+                    logger.error(f"Failed to send abandonment reminder to {user_id}: {e}")
+            
+            await session.commit()
+            logger.info(f"Cart abandonment follow-up complete: {recovered}/{len(abandoned_orders)} reminders sent")
+            
+    except Exception as e:
+        logger.error(f"Cart abandonment job failed: {e}")
+
+
 def configure_scheduler():
     """Configure all scheduled jobs. Call during startup."""
     scheduler.add_job(daily_summary_job, CronTrigger(hour=0, minute=0),
@@ -75,7 +139,10 @@ def configure_scheduler():
                       id="weekly_report", name="Weekly Report", replace_existing=True)
     scheduler.add_job(weekly_feedback_learning_job, CronTrigger(day_of_week="mon", hour=4, minute=0),
                       id="weekly_feedback_learning", name="Feedback Learning", replace_existing=True)
-    logger.info("Scheduler configured: daily_summary, weekly_instagram_sync, weekly_report, weekly_feedback_learning")
+    # P1: Cart abandonment follow-up every 6 hours
+    scheduler.add_job(cart_abandonment_followup_job, CronTrigger(hour="*/6", minute=30),
+                      id="cart_abandonment", name="Cart Abandonment", replace_existing=True)
+    logger.info("Scheduler configured: daily_summary, weekly_instagram_sync, weekly_report, weekly_feedback_learning, cart_abandonment")
 
 
 def start_scheduler():

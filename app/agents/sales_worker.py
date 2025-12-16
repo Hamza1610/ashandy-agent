@@ -7,6 +7,7 @@ from app.tools.vector_tools import save_user_interaction, search_text_products, 
 from app.tools.visual_tools import process_image_for_search, detect_product_from_image
 from app.services.policy_service import get_policy_for_query
 from app.services.llm_service import get_llm
+from app.services.conversation_summary_service import conversation_summary_service
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 import logging
 
@@ -122,7 +123,12 @@ User: {user_id}
 Be warm, persuasive, CONCISE (2-3 sentences max).
 Transform tool data into a sales pitch, then ask a closing question!
 """
-        conversation = [SystemMessage(content=system_prompt)] + messages[-5:]
+        # Use efficient summarization instead of last-X messages
+        efficient_context = await conversation_summary_service.get_efficient_context(
+            session_id=state.get("session_id", user_id),
+            messages=messages
+        )
+        conversation = [SystemMessage(content=system_prompt)] + list(efficient_context)
         response = await llm.ainvoke(conversation)
         
         # Execute tools (parallel for independent tools, sequential for stateful)
