@@ -4,7 +4,6 @@
 ![Version](https://img.shields.io/badge/Version-2.0-blue.svg) ![Status](https://img.shields.io/badge/Status-Production--Ready-green.svg) ![Stack](https://img.shields.io/badge/Tech-LangGraph%20%7C%20FastAPI%20%7C%20MCP-orange.svg)
 
 **Winner of the Meta AI Developer Academy Hackathon 2025 (Loading...)**
-
 **Built by Team HAI (Beneficiaries of RAIN Nigeria)**
 
 ---
@@ -49,9 +48,14 @@ graph TB
 
 ```
 
-###🧠 The Agent Hierarchy1. **🔒 Supervisor:** The Gatekeeper. Handles Llama Guard safety checks, cache lookups (Redis), and Admin detection.
+###🧠 The Agent Hierarchy
+
+1. **🔒 Supervisor:** The Gatekeeper. Handles Llama Guard safety checks, cache lookups (Redis), and Admin detection.
+
 2. **🧠 Planner:** Uses **Chain-of-Thought** reasoning to decompose complex user requests into a dependency map.
+
 3. **📦 Dispatcher:** Routes tasks to the correct specialized worker.
+
 4. **💼 The Workers:**
 * **Sales Worker:** Product search, stock checks, upselling.
 * **Payment Worker:** Generates Paystack links, tracks orders.
@@ -60,11 +64,14 @@ graph TB
 
 
 5. **📋 Reviewers:** A specialized critic loop that validates worker output against tool evidence (prevents hallucinations).
+
 6. **⚖️ Conflict Resolver:** Synthesizes outputs from multiple workers into one coherent response.
 
 ---
 
-# 🔌 MCP Server Architecture (Model Context Protocol)We utilize the **Model Context Protocol (MCP)** to decouple our LLM agents from our backend tools. We run 4 distinct FastMCP Servers:
+##🔌 MCP Server Architecture (Model Context Protocol)
+We utilize the **Model Context Protocol (MCP)** to decouple our LLM agents from our backend tools. 
+We run 4 distinct FastMCP Servers:
 
 | Server | Port | Responsibilities | Tools Exposed |
 | --- | --- | --- | --- |
@@ -75,29 +82,37 @@ graph TB
 
 ---
 
-# 🚀 Key Features###🛒 Conversational Commerce & Visual Search* **Llama 4 Vision:** Users upload images; the system uses **Meta SAM + DINOv2** embeddings to find the exact product in the inventory.
+##🚀 Key Features###
+🛒 Conversational Commerce & Visual Search*
+**Llama 4 Vision:** Users upload images; the system uses **Meta SAM + DINOv2** embeddings to find the exact product in the inventory.
+
 * **Cross-Platform:** Works seamlessly on **WhatsApp** and **Instagram** via Meta Graph API.
+
 * **Federated Inventory:** "Ghost Stock" prevention; syncs Instagram posts to physical POS instantly.
 
-###📦 Intelligent Logistics (Agentic Workflow)* **Geofenced Pricing:** The Logistics MCP server calculates delivery fees based on dynamic Ibadan zones.
+###📦 Intelligent Logistics (Agentic Workflow)* 
+**Geofenced Pricing:** The Logistics MCP server calculates delivery fees based on dynamic Ibadan zones.
 * **Zone A (Inward Bodija):** ₦1,500
 * **Zone B (Bodija - Alakia):** ₦2,000
 * **Zone C (Outskirts):** ₦3,000
 
 
-* **Automated Dispatch:** Sends SMS to riders via Twilio upon payment confirmation.
+* **Automated Dispatch:
+** Sends SMS to riders via Twilio upon payment confirmation.
 
-# 🛡️ Security & Compliance (NDPR)* **7-Layer Defense:** Includes Rate Limiting (60/min), HMAC Signature verification, and Prompt Injection shields.
+###🛡️ Security & Compliance (NDPR)* 
+**7-Layer Defense:** Includes Rate Limiting (60/min), HMAC Signature verification, and Prompt Injection shields.
 * **Privacy First:** `/delete_memory` endpoint allows users to erase their semantic data (Right to be Forgotten).
 * **Llama Guard:** Filters toxic inputs and outputs.
 
-# ⚡ Performance Optimizations* **Semantic Caching:** Redis hash-based lookup reduces LLM calls by **50%**.
+###⚡ Performance Optimizations* **Semantic Caching:
+** Redis hash-based lookup reduces LLM calls by **50%**.
 * **LLM Failover:** Primary: **Meta Llama 4** → Fallback: **OpenRouter**.
 * **Circuit Breakers:** Graceful degradation if external APIs (Paystack/Meta) fail.
 
 ---
 
-# 🛠️ Technology Stack* **Orchestration:** LangGraph + LangChain
+##🛠️ Technology Stack* **Orchestration:** LangGraph + LangChain
 * **Backend:** Python FastAPI
 * **LLM Inference:** Meta Llama 4 (70B/8B)
 * **Database:**
@@ -110,7 +125,7 @@ graph TB
 
 ---
 
-# 📂 Project Structure```text
+##📂 Project Structure```text
 ashandy-agent/
 ├── app/
 │   ├── agents/                 # The 9 Autonomous Agents
@@ -130,7 +145,7 @@ ashandy-agent/
 
 ```
 
-#⚡ Quick Start
+##⚡ Quick Start
 ###1. Start the Backend
 ```bash
 # Activate environment
@@ -149,7 +164,8 @@ python mcp-servers/payment-server/ashandy_payment_server.py
 
 ```
 
-###3. Test the API```bash
+###3. Test the API
+```bash
 curl -X POST http://localhost:8000/api/test/message \
   -H "Content-Type: application/json" \
   -d '{"user_id": "test", "message": "Show me lipsticks under 5k"}'
@@ -158,13 +174,10 @@ curl -X POST http://localhost:8000/api/test/message \
 
 ---
 
-# 👥 Team HAI
-* **Hamza Muhammad:** Technical Lead & AI Architect
+##👥 Team HAI* **Hamza Muhammad:** Technical Lead & AI Architect
 * **Israel Ayeni:** Product Manager & Data Engineer
 * **Ibrahim Abdulwahab:** Growth Lead & Integration Specialist
 
 **License:** MIT | **Documentation:** `/docs` endpoint
-
-```
 
 ```
