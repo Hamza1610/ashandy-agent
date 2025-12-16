@@ -4,6 +4,7 @@
 ![Version](https://img.shields.io/badge/Version-2.0-blue.svg) ![Status](https://img.shields.io/badge/Status-Production--Ready-green.svg) ![Stack](https://img.shields.io/badge/Tech-LangGraph%20%7C%20FastAPI%20%7C%20MCP-orange.svg)
 
 **Winner of the Meta AI Developer Academy Hackathon 2025 (Loading...)**
+
 **Built by Team HAI (Beneficiaries of RAIN Nigeria)**
 
 ---
