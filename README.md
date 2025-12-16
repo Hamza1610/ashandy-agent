@@ -48,7 +48,7 @@ graph TB
 
 ```
 
-###🧠 The Agent Hierarchy
+## 🧠 The Agent Hierarchy
 
 1. **🔒 Supervisor:** The Gatekeeper. Handles Llama Guard safety checks, cache lookups (Redis), and Admin detection.
 
@@ -69,7 +69,7 @@ graph TB
 
 ---
 
-##🔌 MCP Server Architecture (Model Context Protocol)
+## 🔌 MCP Server Architecture (Model Context Protocol)
 * We utilize the **Model Context Protocol (MCP)** to decouple our LLM agents from our backend tools. 
 * We run 4 distinct FastMCP Servers:
 
@@ -82,7 +82,7 @@ graph TB
 
 ---
 
-##🚀 Key Features
+## 🚀 Key Features
 ###🛒 Conversational Commerce & Visual Search
 * **Llama 4 Vision:** Users upload images; the system uses **Meta SAM + DINOv2** embeddings to find the exact product in the inventory.
 
@@ -90,7 +90,7 @@ graph TB
 
 * **Federated Inventory:** "Ghost Stock" prevention; syncs Instagram posts to physical POS instantly.
 
-###📦 Intelligent Logistics (Agentic Workflow)
+## 📦 Intelligent Logistics (Agentic Workflow)
 * **Geofenced Pricing:** The Logistics MCP server calculates delivery fees based on dynamic Ibadan zones.
 * **Zone A (Inward Bodija):** ₦1,500
 * **Zone B (Bodija - Alakia):** ₦2,000
@@ -100,12 +100,12 @@ graph TB
 * **Automated Dispatch:
 ** Sends SMS to riders via Twilio upon payment confirmation.
 
-###🛡️ Security & Compliance (NDPR)
+## 🛡️ Security & Compliance (NDPR)
 * **7-Layer Defense:** Includes Rate Limiting (60/min), HMAC Signature verification, and Prompt Injection shields.
 * **Privacy First:** `/delete_memory` endpoint allows users to erase their semantic data (Right to be Forgotten).
 * **Llama Guard:** Filters toxic inputs and outputs.
 
-###⚡ Performance Optimizations
+## ⚡ Performance Optimizations
 * **Semantic Caching:
 ** Redis hash-based lookup reduces LLM calls by **50%**.
 * **LLM Failover:** Primary: **Meta Llama 4** → Fallback: **OpenRouter**.
@@ -113,7 +113,7 @@ graph TB
 
 ---
 
-##🛠️ Technology Stack
+## 🛠️ Technology Stack
 * **Orchestration:** LangGraph + LangChain
 * **Backend:** Python FastAPI
 * **LLM Inference:** Meta Llama 4 (70B/8B)
@@ -127,7 +127,8 @@ graph TB
 
 ---
 
-##📂 Project Structure```text
+## 📂 Project Structure
+```text
 ashandy-agent/
 ├── app/
 │   ├── agents/                 # The 9 Autonomous Agents
@@ -147,7 +148,7 @@ ashandy-agent/
 
 ```
 
-##⚡ Quick Start
+## ⚡ Quick Start
 ###1. Start the Backend
 ```bash
 # Activate environment
@@ -176,7 +177,7 @@ curl -X POST http://localhost:8000/api/test/message \
 
 ---
 
-##👥 Team HAI* **Hamza Muhammad:** Technical Lead & AI Architect
+## 👥 Team HAI* **Hamza Muhammad:** Technical Lead & AI Architect
 * **Israel Ayeni:** Product Manager & Data Engineer
 * **Ibrahim Abdulwahab:** Growth Lead & Integration Specialist
 
