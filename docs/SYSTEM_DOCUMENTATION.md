@@ -203,19 +203,20 @@ sequenceDiagram
 │  • Tracks task statuses                                     │
 └─────────────────────────────────────────────────────────────┘
                               │
-        ┌─────────────────────┼─────────────────────┐
-        ▼                     ▼                     ▼
-┌───────────────┐   ┌───────────────┐   ┌───────────────┐
-│ 💄 SALES      │   │ 💰 PAYMENT    │   │ ⚙️ ADMIN      │
-│   WORKER      │   │   WORKER      │   │   WORKER      │
-│               │   │               │   │               │
-│ • Products    │   │ • Delivery    │   │ • Reports     │
-│ • Prices      │   │ • Payments    │   │ • Approvals   │
-│ • Stock       │   │ • Orders      │   │ • Broadcast   │
-│ • Upselling   │   │ • Confirmations│  │ • Inventory   │
-└───────────────┘   └───────────────┘   └───────────────┘
-        │                     │                     │
-        ▼                     ▼                     ▼
+        ┌─────────────────────┼─────────────────────┬─────────────────────┐
+        ▼                     ▼                     ▼                     ▼
+┌───────────────┐   ┌───────────────┐   ┌───────────────┐   ┌───────────────┐
+│ 💄 SALES      │   │ 💰 PAYMENT    │   │ ⚙️ ADMIN      │   │ 💬 SUPPORT    │
+│   WORKER      │   │   WORKER      │   │   WORKER      │   │   WORKER      │
+│               │   │               │   │               │   │               │
+│ • Products    │   │ • Delivery    │   │ • Reports     │   │ • Complaints  │
+│ • Prices      │   │ • Payments    │   │ • Approvals   │   │ • Tickets     │
+│ • Stock       │   │ • Orders      │   │ • Broadcast   │   │ • Escalation  │
+│ • Upselling   │   │ • Confirmations│  │ • Inventory   │   │ • Empathy     │
+└───────────────┘   └───────────────┘   └───────────────┘   └───────────────┘
+        │                     │                     │                     │
+        └─────────────────────┴─────────────────────┴─────────────────────┘
+                                        │
 ┌───────────────────────────────────────────────────────────┐
 │                    📋 REVIEWER AGENTS                       │
 │  • Scoped per worker type (sales, payment, admin, support) │
