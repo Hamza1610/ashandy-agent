@@ -1,9 +1,3 @@
-Here is the final, production-ready **README.md** incorporating all the technical details from your system documentation (Architecture V2.0, MCP Servers, Agent Hierarchy) while strictly adhering to the **Llama 4** requirement.
-
-You can copy and paste this entire block directly into GitHub.
-
----
-
 ```markdown
 # 🤖 Ashandy AI Agent (Project Awéléwà)
 ### *Production-Grade Conversational Commerce System*
