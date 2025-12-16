@@ -30,3 +30,4 @@ mcp[cli]>=0.1.0
 apscheduler
 aiosmtplib
 sentence-transformers
+slowapi

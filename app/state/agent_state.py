@@ -43,6 +43,10 @@ class AgentState(TypedDict):
     blocked: bool
     """Whether the message was blocked by safety checks"""
     
+    # ========== Supervisor ==========
+    supervisor_verdict: Optional[Literal["safe", "block", "ignore", "cached"]]
+    """Verdict from input supervisor: safe, block, ignore, or cached"""
+    
     # ========== Memory & Context ==========
     user_memory: Optional[Dict]
     """User preferences and history from Pinecone vector store"""
@@ -113,6 +117,12 @@ class AgentState(TypedDict):
 
     worker_result: Optional[str]
     """Result from the last worker execution"""
+
+    planner_thought: Optional[str]
+    """Chain-of-thought reasoning from the planner agent"""
+
+    conflict_resolution: Optional[str]
+    """Result from conflict resolver when multiple workers have outputs"""
 
     # ========== System 2.0: Pub/Sub & Review ==========
     task_statuses: Optional[Dict[str, str]]

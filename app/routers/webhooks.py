@@ -2,12 +2,17 @@
 Webhooks Router: Handles incoming messages from WhatsApp, Instagram, and Paystack.
 """
 from fastapi import APIRouter, Request, HTTPException
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from app.utils.config import settings
 from app.models.webhook_schemas import WhatsAppWebhookPayload, InstagramWebhookPayload
 import logging
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Rate limiter for webhooks (60 messages/minute per IP)
+limiter = Limiter(key_func=get_remote_address)
 
 
 @router.get("/whatsapp")
@@ -26,7 +31,8 @@ async def verify_whatsapp_webhook(request: Request):
 
 
 @router.post("/whatsapp")
-async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
+@limiter.limit("60/minute")
+async def receive_whatsapp_webhook(request: Request, payload: WhatsAppWebhookPayload):
     """Process incoming WhatsApp messages."""
     from app.graphs.main_graph import app as agent_app
     from langchain_core.messages import HumanMessage

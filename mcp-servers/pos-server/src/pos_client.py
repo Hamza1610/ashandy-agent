@@ -1,6 +1,8 @@
 import httpx
 import os
 import logging
+import json
+from pathlib import Path
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -10,6 +12,9 @@ from typing import List, Dict, Any
 # Configure logging locally for the server
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("pos-client")
+
+# Path to centralized mock data
+MOCK_DATA_PATH = Path(__file__).parent.parent.parent.parent / "mocks" / "products.json"
 
 class PHPPOSClient:
     def __init__(self):
@@ -182,12 +187,45 @@ Image: {item.get('image_id')}
             return f"Error retrieving sale: {e}"
 
     def _get_mock_data(self, query: str) -> str:
-        """Fallback mock data matching the query for development continuity."""
-        return f"""
-[MOCK POS DATA - LIVE CONNECTION FAILED]
-- ID: 999
-  Name: {query.title()} (Mock)
-  Price: ₦4,500
-  Stock: 15
-  Desc: Mock description for {query}.
+        """Load mock data from centralized mocks/ folder and search for matching products."""
+        try:
+            if not MOCK_DATA_PATH.exists():
+                logger.warning(f"Mock data file not found: {MOCK_DATA_PATH}")
+                return f"No products found for '{query}'."
+            
+            with open(MOCK_DATA_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            products = data.get("products", [])
+            query_lower = query.lower()
+            
+            # Search for matching products
+            matches = [p for p in products if query_lower in p.get("name", "").lower()][:5]
+            
+            if not matches:
+                return f"No products found matching '{query}'."
+            
+            # Format like real POS output
+            result_str = ""
+            for p in matches:
+                qty = "N/A"
+                locs = p.get("locations", {})
+                if locs:
+                    first_loc = list(locs.values())[0]
+                    if isinstance(first_loc, dict):
+                        qty = first_loc.get("quantity", "N/A")
+                
+                result_str += f"""
+- ID: {p.get('item_id')}
+  Name: {p.get('name')}
+  Price: ₦{p.get('unit_price', 0):,}
+  Stock: {qty}
+  Desc: {p.get('description', 'N/A')}
 """
+            logger.info(f"Mock data: Found {len(matches)} products for '{query}'")
+            return result_str
+            
+        except Exception as e:
+            logger.error(f"Error loading mock data: {e}")
+            return f"No products found for '{query}'."
+

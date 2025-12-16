@@ -1,0 +1,124 @@
+{
+    "products": [
+        {
+            "item_id": 1001,
+            "name": "CeraVe Hydrating Cleanser (236ml)",
+            "unit_price": 8500,
+            "description": "Gentle hydrating facial cleanser with ceramides and hyaluronic acid",
+            "category": "skincare",
+            "locations": {
+                "1": {
+                    "quantity": 25
+                }
+            }
+        },
+        {
+            "item_id": 1002,
+            "name": "CeraVe Moisturizing Cream (453g)",
+            "unit_price": 12500,
+            "description": "Rich moisturizing cream for dry to very dry skin",
+            "category": "skincare",
+            "locations": {
+                "1": {
+                    "quantity": 18
+                }
+            }
+        },
+        {
+            "item_id": 1003,
+            "name": "The Ordinary Niacinamide 10% + Zinc 1% (30ml)",
+            "unit_price": 6800,
+            "description": "High-strength vitamin and mineral blemish formula",
+            "category": "skincare",
+            "locations": {
+                "1": {
+                    "quantity": 42
+                }
+            }
+        },
+        {
+            "item_id": 1004,
+            "name": "Nivea Body Lotion (400ml)",
+            "unit_price": 3500,
+            "description": "Nourishing body lotion for all skin types",
+            "category": "body_care",
+            "locations": {
+                "1": {
+                    "quantity": 55
+                }
+            }
+        },
+        {
+            "item_id": 1005,
+            "name": "MAC Ruby Woo Lipstick",
+            "unit_price": 15000,
+            "description": "Iconic matte red lipstick",
+            "category": "makeup",
+            "locations": {
+                "1": {
+                    "quantity": 12
+                }
+            }
+        },
+        {
+            "item_id": 1006,
+            "name": "Neutrogena Sunscreen SPF50 (88ml)",
+            "unit_price": 7500,
+            "description": "Ultra-light water-resistant sunscreen",
+            "category": "skincare",
+            "locations": {
+                "1": {
+                    "quantity": 30
+                }
+            }
+        },
+        {
+            "item_id": 1007,
+            "name": "Ring Light 10-inch with Tripod",
+            "unit_price": 12000,
+            "description": "Professional ring light for photography and video",
+            "category": "accessories",
+            "locations": {
+                "1": {
+                    "quantity": 8
+                }
+            }
+        },
+        {
+            "item_id": 1008,
+            "name": "Dove Beauty Bar (135g x 4)",
+            "unit_price": 2800,
+            "description": "Moisturizing beauty bar pack",
+            "category": "body_care",
+            "locations": {
+                "1": {
+                    "quantity": 65
+                }
+            }
+        },
+        {
+            "item_id": 1009,
+            "name": "Maybelline Fit Me Foundation",
+            "unit_price": 4500,
+            "description": "Natural finish liquid foundation",
+            "category": "makeup",
+            "locations": {
+                "1": {
+                    "quantity": 22
+                }
+            }
+        },
+        {
+            "item_id": 1010,
+            "name": "La Roche-Posay Effaclar Duo (40ml)",
+            "unit_price": 18500,
+            "description": "Dual action acne treatment",
+            "category": "skincare",
+            "locations": {
+                "1": {
+                    "quantity": 6
+                }
+            }
+        }
+    ]
+}

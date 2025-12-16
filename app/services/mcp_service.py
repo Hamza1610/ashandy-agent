@@ -83,7 +83,6 @@ class MCPService:
 
     async def call_tool(self, server_name: str, tool_name: str, arguments: dict):
         """Call a tool on a connected MCP server."""
-        # Use specific lock for this server to prevent race conditions
         lock = self._locks.get(server_name)
         if not lock:
              return f"Error: Unknown server '{server_name}'."
@@ -93,9 +92,6 @@ class MCPService:
             
             if not session:
                 return f"Error: MCP Server '{server_name}' is not connected. Check startup logs."
-            
-            if not session:
-                return f"Error: MCP Server '{server_name}' unavailable."
 
         try:
             result = await session.call_tool(tool_name, arguments=arguments)
@@ -108,6 +104,38 @@ class MCPService:
             logger.error(f"MCP Call Error ({server_name}/{tool_name}): {e}")
             return f"Tool Execution Failed: {str(e)}"
 
+    async def get_health_status(self) -> dict:
+        """
+        Get health status of all MCP servers.
+        
+        Returns dict with server names as keys and status info as values.
+        Used for /health endpoint and monitoring.
+        """
+        status = {}
+        server_names = ["pos", "payment", "knowledge", "logistics"]
+        
+        for name in server_names:
+            session = self.sessions.get(name)
+            if session:
+                # Try a simple ping-like check
+                try:
+                    # Just check if session exists and is connected
+                    status[name] = {
+                        "status": "connected",
+                        "session_id": id(session)
+                    }
+                except Exception as e:
+                    status[name] = {
+                        "status": "error",
+                        "error": str(e)
+                    }
+            else:
+                status[name] = {
+                    "status": "disconnected",
+                    "error": "Session not initialized"
+                }
+        
+        return status
 
     async def cleanup(self):
         """Clean up resources and close connections."""

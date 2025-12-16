@@ -103,38 +103,36 @@ After answering, suggest ONE next step.
         conversation = [SystemMessage(content=system_prompt)] + messages[-5:]
         response = await llm.ainvoke(conversation)
         
-        # Execute tools
+        # Execute tools (parallel for independent tools, sequential for stateful)
         final_result = response.content
         tool_evidence = []
         
         if response.tool_calls:
-            for tc in response.tool_calls:
-                name = tc["name"]
-                args = tc["args"]
-                logger.info(f"Sales Worker calling tool: {name}")
-                
-                tool_output = ""
+            from app.utils.parallel_tools import execute_tools_smart
+            
+            # Tool executor function
+            async def execute_tool(name: str, args: dict) -> str:
                 if name in ["search_products_tool", "search_products"]:
-                    tool_output = await search_products.ainvoke(args)
+                    return await search_products.ainvoke(args)
                 elif name in ["check_product_stock_tool", "check_product_stock"]:
-                    tool_output = await check_product_stock.ainvoke(args)
+                    return await check_product_stock.ainvoke(args)
                 elif name == "save_user_interaction":
-                    tool_output = await save_user_interaction.ainvoke(args)
+                    return await save_user_interaction.ainvoke(args)
                 elif name == "retrieve_user_memory":
-                    tool_output = await retrieve_user_memory.ainvoke(args)
+                    return await retrieve_user_memory.ainvoke(args)
                 elif name == "detect_product_from_image":
                     from app.services.mcp_service import mcp_service
                     img_url = args.get("image_url")
-                    tool_output = await mcp_service.call_tool("knowledge", "analyze_and_enrich", {"image_url": img_url}) if img_url else "Error: No image_url"
-                
-                tool_evidence.append({
-                    "tool": name,
-                    "args": args,
-                    "output": str(tool_output)[:500]
-                })
-
-                if name != "save_user_interaction":
-                    final_result += f"\n\n{tool_output}"
+                    return await mcp_service.call_tool("knowledge", "analyze_and_enrich", {"image_url": img_url}) if img_url else "Error: No image_url"
+                return f"Unknown tool: {name}"
+            
+            # Execute with smart parallelization
+            tool_evidence = await execute_tools_smart(response.tool_calls, execute_tool)
+            
+            # Append non-write tool outputs to result
+            for item in tool_evidence:
+                if item["tool"] != "save_user_interaction":
+                    final_result += f"\n\n{item['output']}"
         
         return {
             "worker_outputs": {task_id: final_result},
