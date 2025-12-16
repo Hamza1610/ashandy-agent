@@ -176,9 +176,9 @@ curl -X POST http://localhost:8000/api/test/message \
 ---
 
 ## 👥 Team HAI
-* **Hamza Muhammad:** Technical Lead & AI Architect
-* **Israel Ayeni:** Product Manager & Data Engineer
-* **Ibrahim Abdulwahab:** Growth Lead & Integration Specialist
+* **Hamza Muhammad:** Technical Lead 
+* **Israel Ayeni:** Product Manager 
+* **Ibrahim Abdulwahab:** Growth Lead
 
 **License:** MIT | **Documentation:** `/docs` endpoint
 
