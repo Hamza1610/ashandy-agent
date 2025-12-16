@@ -1,4 +1,3 @@
-```markdown
 # 🤖 Ashandy AI Agent (Project Awéléwà)
 ### *Production-Grade Conversational Commerce System*
 
