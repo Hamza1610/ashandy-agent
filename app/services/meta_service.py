@@ -2,6 +2,7 @@
 Meta Service: WhatsApp and Instagram messaging via Meta Graph API.
 """
 import httpx
+from typing import Optional
 from app.utils.config import settings
 import logging
 
