@@ -18,12 +18,39 @@ async def search_products(query: str) -> str:
         knowledge_result = await mcp_service.call_tool("knowledge", "search_memory", {"query": query})
         
         if knowledge_result and "No matching products" not in knowledge_result and "Error" not in knowledge_result:
-            return f"[Semantic Search Results]\n{knowledge_result}"
+            # Filter out stock count mentions from results
+            lines = knowledge_result.split('\n')
+            filtered = [l for l in lines if 'stock:' not in l.lower() and 'qty:' not in l.lower()]
+            return f"[Semantic Search Results]\n{chr(10).join(filtered)}"
 
         # Fallback to direct POS search
         logger.info("Knowledge search returned no results. Trying POS.")
         pos_results = await search_pos_direct.ainvoke(query)
-        return f"[POS Search Results]\n{pos_results}"
+        
+        # If still no results, try finding similar products
+        if "No products found" in pos_results or not pos_results.strip():
+            logger.info(f"No exact match for '{query}'. Searching for similar products...")
+            
+            # Extract keywords for similarity search
+            keywords = query.lower().replace("price", "").replace("how much", "").split()
+            for keyword in keywords[:2]:
+                if len(keyword) > 3:  # Skip short words
+                    similar = await mcp_service.call_tool("pos", "search_products", {"query": keyword})
+                    if similar and "No products found" not in similar and "Error" not in similar:
+                        # Filter stock counts
+                        lines = similar.split('\n')
+                        filtered = [l for l in lines if 'stock:' not in l.lower() and 'qty:' not in l.lower()]
+                        return (
+                            f"'{query}' is not in our current catalog.\n\n"
+                            f"✨ *Similar products you might like:*\n{chr(10).join(filtered)}"
+                        )
+            
+            return f"'{query}' is not available. Please ask about our other cosmetics products!"
+        
+        # Filter stock counts from POS results
+        lines = pos_results.split('\n')
+        filtered = [l for l in lines if 'stock:' not in l.lower() and 'qty:' not in l.lower()]
+        return f"[POS Search Results]\n{chr(10).join(filtered)}"
         
     except Exception as e:
         logger.error(f"Product search failed: {e}", exc_info=True)

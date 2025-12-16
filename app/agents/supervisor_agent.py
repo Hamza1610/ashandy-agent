@@ -101,7 +101,7 @@ async def supervisor_agent_node(state: AgentState):
                 logger.info("Supervisor: Fast-path greeting response")
                 return {
                     "supervisor_verdict": "block",
-                    "messages": [AIMessage(content="Hello! 👋 Welcome to Ashandy Home of Cosmetics. I am Awéléwà, the AI sales and customer support agent for ASHANDY HOME OF COSMETICSHow can I help you today?")]
+                    "messages": [AIMessage(content="Hello! 👋 Welcome to Ashandy Home of Cosmetics. I am Awéléwà, the AI sales and customer support agent for ASHANDY HOME OF COSMETICS. How can I help you today?")]
                 }
 
             # === CACHE CHECK (before LLM processing) ===
