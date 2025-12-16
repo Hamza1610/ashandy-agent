@@ -70,8 +70,8 @@ graph TB
 ---
 
 ##🔌 MCP Server Architecture (Model Context Protocol)
-We utilize the **Model Context Protocol (MCP)** to decouple our LLM agents from our backend tools. 
-We run 4 distinct FastMCP Servers:
+* We utilize the **Model Context Protocol (MCP)** to decouple our LLM agents from our backend tools. 
+* We run 4 distinct FastMCP Servers:
 
 | Server | Port | Responsibilities | Tools Exposed |
 | --- | --- | --- | --- |
@@ -82,16 +82,16 @@ We run 4 distinct FastMCP Servers:
 
 ---
 
-##🚀 Key Features###
-🛒 Conversational Commerce & Visual Search*
-**Llama 4 Vision:** Users upload images; the system uses **Meta SAM + DINOv2** embeddings to find the exact product in the inventory.
+##🚀 Key Features
+###🛒 Conversational Commerce & Visual Search
+* **Llama 4 Vision:** Users upload images; the system uses **Meta SAM + DINOv2** embeddings to find the exact product in the inventory.
 
 * **Cross-Platform:** Works seamlessly on **WhatsApp** and **Instagram** via Meta Graph API.
 
 * **Federated Inventory:** "Ghost Stock" prevention; syncs Instagram posts to physical POS instantly.
 
-###📦 Intelligent Logistics (Agentic Workflow)* 
-**Geofenced Pricing:** The Logistics MCP server calculates delivery fees based on dynamic Ibadan zones.
+###📦 Intelligent Logistics (Agentic Workflow)
+* **Geofenced Pricing:** The Logistics MCP server calculates delivery fees based on dynamic Ibadan zones.
 * **Zone A (Inward Bodija):** ₦1,500
 * **Zone B (Bodija - Alakia):** ₦2,000
 * **Zone C (Outskirts):** ₦3,000
@@ -100,19 +100,21 @@ We run 4 distinct FastMCP Servers:
 * **Automated Dispatch:
 ** Sends SMS to riders via Twilio upon payment confirmation.
 
-###🛡️ Security & Compliance (NDPR)* 
-**7-Layer Defense:** Includes Rate Limiting (60/min), HMAC Signature verification, and Prompt Injection shields.
+###🛡️ Security & Compliance (NDPR)
+* **7-Layer Defense:** Includes Rate Limiting (60/min), HMAC Signature verification, and Prompt Injection shields.
 * **Privacy First:** `/delete_memory` endpoint allows users to erase their semantic data (Right to be Forgotten).
 * **Llama Guard:** Filters toxic inputs and outputs.
 
-###⚡ Performance Optimizations* **Semantic Caching:
+###⚡ Performance Optimizations
+* **Semantic Caching:
 ** Redis hash-based lookup reduces LLM calls by **50%**.
 * **LLM Failover:** Primary: **Meta Llama 4** → Fallback: **OpenRouter**.
 * **Circuit Breakers:** Graceful degradation if external APIs (Paystack/Meta) fail.
 
 ---
 
-##🛠️ Technology Stack* **Orchestration:** LangGraph + LangChain
+##🛠️ Technology Stack
+* **Orchestration:** LangGraph + LangChain
 * **Backend:** Python FastAPI
 * **LLM Inference:** Meta Llama 4 (70B/8B)
 * **Database:**
