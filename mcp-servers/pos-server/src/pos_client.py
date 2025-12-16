@@ -13,6 +13,7 @@ logger = logging.getLogger("pos-client")
 
 class PHPPOSClient:
     def __init__(self):
+        #>> PHPPOS should use the api URL not local host
         self.base_url = os.getenv("PHPPOS_BASE_URL", "http://localhost/phppos")
         self.api_key = os.getenv("POS_CONNECTOR_API_KEY", "")
         self.headers = {
@@ -26,6 +27,8 @@ class PHPPOSClient:
         Search for items in PHPPOS by name or ID.
         Returns a formatted string for the Agent.
         """
+
+        #>> Hamza[task]: modify search items to be only "skincare" category fomr the search
         url = f"{self.base_url}/items"
         logger.info(f"Searching POS: {url} with query '{query}'")
         
