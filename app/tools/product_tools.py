@@ -48,18 +48,56 @@ async def get_product_by_id(product_id: str) -> str:
 
 @tool("check_product_stock_tool")
 async def check_product_stock(product_name: str) -> str:
-    """Check if a specific product is in stock."""
+    """
+    Check if a product is available (name found in database = available).
+    
+    NOTE: Stock counts are NOT reliable (PHPPOS not up-to-date).
+    If product name exists → Consider available.
+    If not found → Recommend similar products.
+    
+    For orders >25k, manager confirms actual availability before payment.
+    """
     try:
-        logger.info(f"Checking stock: {product_name}")
+        logger.info(f"Checking availability: {product_name}")
         result = await mcp_service.call_tool("pos", "search_products", {"query": product_name})
         
-        if not result or "No matching products" in result:
-            return f"'{product_name}' is not available in our inventory."
-        return result
+        if not result or "No matching products" in result or "Error" in result:
+            # Product not found - try to find similar products
+            logger.info(f"'{product_name}' not found. Searching for similar products...")
+            
+            # Extract key terms for similarity search
+            keywords = product_name.lower().split()
+            similar_results = []
+            
+            for keyword in keywords[:2]:  # Try first 2 keywords
+                if len(keyword) > 3:  # Skip short words
+                    similar = await mcp_service.call_tool("pos", "search_products", {"query": keyword})
+                    if similar and "No matching" not in similar:
+                        similar_results.append(similar)
+            
+            if similar_results:
+                return (
+                    f"'{product_name}' is not currently in our catalog.\n\n"
+                    f"✨ *Similar products you might like:*\n{similar_results[0]}"
+                )
+            else:
+                return f"'{product_name}' is not available. Please ask about our other products!"
+        
+        # Product found - it's available (don't mention stock counts)
+        # Parse out stock counts from response before returning
+        lines = result.split('\n')
+        filtered_lines = []
+        for line in lines:
+            # Remove stock/quantity mentions
+            if 'stock:' not in line.lower() and 'qty:' not in line.lower() and 'quantity:' not in line.lower():
+                filtered_lines.append(line)
+        
+        clean_result = '\n'.join(filtered_lines)
+        return f"✅ {product_name} is available!\n{clean_result}"
         
     except Exception as e:
-        logger.error(f"Stock check failed: {e}")
-        return "Could not check stock. Please contact support."
+        logger.error(f"Availability check failed: {e}")
+        return "Could not check availability. Please contact support."
 
 
 @tool("search_pos_direct_tool")

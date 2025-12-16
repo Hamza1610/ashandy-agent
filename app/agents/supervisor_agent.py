@@ -65,6 +65,23 @@ async def supervisor_agent_node(state: AgentState):
         is_admin = state.get("is_admin", False)
         user_id = state.get("user_id", "unknown")
 
+        # NDPR: /delete_memory command (Right to be Forgotten)
+        if clean_text in ["/delete_memory", "/deletememory", "delete my memory", "delete my data"]:
+            logger.info(f"Supervisor: NDPR deletion request from {user_id}")
+            try:
+                from app.services.ndpr_service import ndpr_service
+                result = await ndpr_service.delete_user_memory(user_id)
+                return {
+                    "supervisor_verdict": "block",
+                    "messages": [AIMessage(content=result["message"])]
+                }
+            except Exception as e:
+                logger.error(f"NDPR deletion failed: {e}")
+                return {
+                    "supervisor_verdict": "block",
+                    "messages": [AIMessage(content="⚠️ Unable to process deletion request. Please contact the manager for assistance.")]
+                }
+
         if not has_image and not is_admin:
             # Filter: Emoji/symbol only
             alpha_text = re.sub(r'[^a-z0-9]', '', clean_text)

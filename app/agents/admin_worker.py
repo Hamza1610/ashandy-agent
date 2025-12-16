@@ -6,6 +6,7 @@ from app.state.agent_state import AgentState
 from app.services.llm_service import get_llm
 from langchain_core.messages import SystemMessage, AIMessage
 from app.utils.config import settings
+from app.utils.brand_voice import WHATSAPP_FORMAT_RULES
 from app.tools.report_tool import generate_comprehensive_report, generate_weekly_report
 from app.tools.incident_tools import report_incident
 from app.tools.admin_tools import relay_message_to_customer, get_incident_context, resolve_incident

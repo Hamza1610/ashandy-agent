@@ -7,6 +7,7 @@ from app.tools.db_tools import create_order_record
 from app.tools.tomtom_tools import calculate_delivery_fee
 from app.tools.delivery_validation_tools import request_delivery_details, check_delivery_ready, DEFAULT_EMAIL
 from app.services.llm_service import get_llm
+from app.utils.brand_voice import WHATSAPP_FORMAT_RULES
 from langchain_core.messages import SystemMessage, AIMessage
 import logging
 import json
@@ -104,6 +105,8 @@ Order: {json.dumps(order_data, default=str)}
    - "Please use the payment link to complete your order"
    - "Payment confirmation is automatic - you'll receive a notification"
    - "Let me generate a fresh payment link for you"
+
+{WHATSAPP_FORMAT_RULES}
 """
 
         response = await llm.ainvoke([SystemMessage(content=system_prompt)])

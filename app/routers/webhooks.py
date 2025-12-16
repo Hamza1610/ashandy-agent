@@ -65,6 +65,7 @@ async def receive_whatsapp_webhook(request: Request, payload: WhatsAppWebhookPay
         
         user_message_content = ""
         image_url = None
+        visual_analysis = None  # Pre-analyzed product info
         
         if msg_type == "text":
             text_obj = message.text
@@ -74,18 +75,37 @@ async def receive_whatsapp_webhook(request: Request, payload: WhatsAppWebhookPay
             img_obj = message.image
             media_id = img_obj.id if img_obj else None
             caption = img_obj.caption if img_obj else ""
-            user_message_content = caption or "" # Use caption as text context
+            user_message_content = caption or ""
             
             # Resolve URL
             fetched_url = await meta_service.get_media_url(media_id)
             if fetched_url:
                 image_url = fetched_url
+                
+                # PRE-ANALYZE IMAGE for product detection
+                try:
+                    from app.tools.visual_tools import detect_product_from_image
+                    logger.info(f"Pre-analyzing image: {image_url[:50]}...")
+                    analysis = await detect_product_from_image.ainvoke(image_url)
+                    if analysis and not analysis.get("error"):
+                        visual_analysis = analysis
+                        # Extract key info for agent
+                        detected_text = analysis.get("detected_text", "")
+                        product_type = analysis.get("product_type", "")
+                        matched = analysis.get("matched_products", "")
+                        
+                        # Enrich user message with context
+                        if detected_text or matched:
+                            user_message_content += f" [IMAGE DETECTED: {detected_text or product_type}. Matches: {matched}]"
+                            logger.info(f"Image pre-analysis: {detected_text}, matched: {matched}")
+                except Exception as e:
+                    logger.error(f"Image pre-analysis failed: {e}")
             else:
                 logger.warning(f"Could not resolve URL for media {media_id}")
         else:
             logger.warning(f"⚠️ Cannot extract message. Type: {msg_type}, Has text: {hasattr(message, 'text')}, Has image: {hasattr(message, 'image')}")
             
-        logger.info(f"📝 Final user_message_content: '{user_message_content}' (length: {len(user_message_content)})")
+        logger.info(f"📝 Final user_message_content: '{user_message_content[:100]}' (length: {len(user_message_content)})")
             
         # Construct Input State
         # We need to pass the image URL in a way the Router understands.
@@ -160,7 +180,7 @@ async def verify_instagram_webhook(request: Request):
 
 @router.post("/instagram")
 async def receive_instagram_webhook(payload: InstagramWebhookPayload):
-    """Process incoming Instagram messages."""
+    """Process incoming Instagram messages including story/post replies."""
     from app.graphs.main_graph import app as graph_app
     from langchain_core.messages import HumanMessage
     from app.services.meta_service import meta_service
@@ -174,9 +194,14 @@ async def receive_instagram_webhook(payload: InstagramWebhookPayload):
         
         if not event.message:
             return {"status": "ignored_non_message"}
+        
+        # Skip echo messages (our own responses)
+        if getattr(event.message, 'is_echo', False):
+            return {"status": "ignored_echo"}
               
         text_content = event.message.text or ""
         
+        # Handle image attachments
         image_url = None
         if event.message.attachments:
             for att in event.message.attachments:
@@ -184,7 +209,55 @@ async def receive_instagram_webhook(payload: InstagramWebhookPayload):
                     image_url = att.get("payload", {}).get("url")
                     break
         
-        human_msg = HumanMessage(content=text_content)
+        # === STORY/POST REPLY CONTEXT ===
+        story_post_context = ""
+        if event.message.reply_to:
+            reply_info = event.message.reply_to
+            
+            # Story reply
+            if reply_info.story:
+                story_url = reply_info.story.get("url")
+                story_id = reply_info.story.get("id")
+                logger.info(f"Instagram story reply detected: {story_id}")
+                
+                # Fetch story details and analyze
+                if story_id:
+                    media_data = await meta_service.get_instagram_media(story_id)
+                    if media_data:
+                        caption = media_data.get("caption", "")
+                        media_url = media_data.get("media_url", story_url)
+                        
+                        # Analyze for product details
+                        from app.tools.instagram_tools import analyze_instagram_post
+                        analysis = await analyze_instagram_post(media_url, caption)
+                        if analysis and analysis.get("products"):
+                            products = analysis.get("products", [])
+                            story_post_context = f"\n[STORY CONTEXT: Customer replied to story about: {caption[:100]}. Products shown: {products}]"
+                            logger.info(f"Story analysis: {products}")
+            
+            # Post reply
+            elif reply_info.post:
+                post_url = reply_info.post.get("url")
+                post_id = reply_info.post.get("id")
+                logger.info(f"Instagram post reply detected: {post_id}")
+                
+                if post_id:
+                    media_data = await meta_service.get_instagram_media(post_id)
+                    if media_data:
+                        caption = media_data.get("caption", "")
+                        media_url = media_data.get("media_url", post_url)
+                        
+                        from app.tools.instagram_tools import analyze_instagram_post
+                        analysis = await analyze_instagram_post(media_url, caption)
+                        if analysis and analysis.get("products"):
+                            products = analysis.get("products", [])
+                            story_post_context = f"\n[POST CONTEXT: Customer replied to post about: {caption[:100]}. Products shown: {products}]"
+                            logger.info(f"Post analysis: {products}")
+        
+        # Append context to message for agent
+        enriched_text = text_content + story_post_context
+        
+        human_msg = HumanMessage(content=enriched_text)
         if image_url:
             human_msg.additional_kwargs["image_url"] = image_url
         
