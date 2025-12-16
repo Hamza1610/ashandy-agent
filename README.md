@@ -91,14 +91,13 @@ graph TB
 * **Federated Inventory:** "Ghost Stock" prevention; syncs Instagram posts to physical POS instantly.
 
 ## 📦 Intelligent Logistics (Agentic Workflow)
-* **Geofenced Pricing:** The Logistics MCP server calculates delivery fees based on dynamic Ibadan zones.
+**Geofenced Pricing:** The Logistics MCP server calculates delivery fees based on dynamic Ibadan zones.
 * **Zone A (Inward Bodija):** ₦1,500
 * **Zone B (Bodija - Alakia):** ₦2,000
 * **Zone C (Outskirts):** ₦3,000
 
 
-* **Automated Dispatch:
-** Sends SMS to riders via Twilio upon payment confirmation.
+* **Automated Dispatch:** Sends SMS to riders via Twilio upon payment confirmation.
 
 ## 🛡️ Security & Compliance (NDPR)
 * **7-Layer Defense:** Includes Rate Limiting (60/min), HMAC Signature verification, and Prompt Injection shields.
@@ -106,8 +105,7 @@ graph TB
 * **Llama Guard:** Filters toxic inputs and outputs.
 
 ## ⚡ Performance Optimizations
-* **Semantic Caching:
-** Redis hash-based lookup reduces LLM calls by **50%**.
+* **Semantic Caching:** Redis hash-based lookup reduces LLM calls by **50%**.
 * **LLM Failover:** Primary: **Meta Llama 4** → Fallback: **OpenRouter**.
 * **Circuit Breakers:** Graceful degradation if external APIs (Paystack/Meta) fail.
 
