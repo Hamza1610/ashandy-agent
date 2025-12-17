@@ -9,7 +9,7 @@ import json
 
 logger = logging.getLogger(__name__)
 
-MAX_RETRIES = 2
+MAX_RETRIES = 5
 
 
 async def reviewer_agent_node(state: AgentState, worker_scope: str = None):
@@ -84,13 +84,24 @@ C. **Safety**: No JSON/code traces? Polite response?
 - "Similar products" or "alternatives" when exact match not found → APPROVE
 - Worker must NOT invent products not in evidence
 
+### PAYMENT/DELIVERY VALIDATION RULES
+- **Missing Required Info**: If task requires payment/delivery and worker requests customer information (name, address, phone), this is VALID pre-requisite work → APPROVE
+- Worker correctly identifies missing data before payment generation → APPROVE
+- Only REJECT if worker invents fake data or processes payment without proper validation
+
+### CLARIFICATION REQUEST RULES
+- **Vague/Impossible Tasks**: If user request is too vague (e.g., "all products", "everything") and worker asks for specifics (product category, price range), this is VALID → APPROVE
+- Worker asking clarifying questions to narrow down search → APPROVE  
+- Only REJECT if worker can fulfill task directly but chooses not to
+
 ### OUTPUT (JSON ONLY)
 {{"verdict": "APPROVE" | "REJECT", "critique": "Reason if REJECT", "correction": "Optional fix"}}
 
 **Rules:**
 - "No active task" → REJECT
 - Error traces → REJECT
-- Matches evidence OR offers valid alternatives → APPROVE
+- Empty/emoji-only outputs → REJECT
+- Matches evidence OR offers valid alternatives OR requests required info OR asks for clarification → APPROVE
 """
 
         response = await llm.ainvoke([SystemMessage(content=system_prompt)])

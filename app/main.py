@@ -102,6 +102,30 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Cache warming failed: {e}")
     
+    # Initialize LangGraph checkpointer for state persistence
+    checkpointer_context = None
+    try:
+        from app.graphs.main_graph import app as graph_app
+        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+        
+        # Create checkpointer and setup tables
+        # Convert asyncpg URL to standard postgres URL (AsyncPostgresSaver uses psycopg internally)
+        postgres_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+        
+        # Enter the async context manager and keep it alive for app lifetime
+        checkpointer_context = AsyncPostgresSaver.from_conn_string(postgres_url)
+        checkpointer = await checkpointer_context.__aenter__()
+        await checkpointer.setup()  # Create checkpoint tables
+        
+        # Assign the actual saver instance to graph
+        graph_app.checkpointer = checkpointer
+        # Store context for cleanup on shutdown
+        app.state.checkpointer_context = checkpointer_context
+        logger.info("✅ Graph checkpointer initialized (state persistence enabled)")
+    except Exception as e:
+        logger.warning(f"Checkpointer initialization failed: {e}. State will not persist across sessions.")
+        checkpointer_context = None
+    
     yield
     
     if SCHEDULER_AVAILABLE:
@@ -112,6 +136,14 @@ async def lifespan(app: FastAPI):
             
     if MCP_SERVICE_AVAILABLE:
         await mcp_service.cleanup()
+    
+    # Cleanup checkpointer context
+    if hasattr(app.state, 'checkpointer_context') and app.state.checkpointer_context:
+        try:
+            await app.state.checkpointer_context.__aexit__(None, None, None)
+            logger.info("Checkpointer context cleaned up")
+        except Exception as e:
+            logger.warning(f"Checkpointer cleanup error: {e}")
         
     logger.info(f"Shutting down {settings.APP_NAME}")
 

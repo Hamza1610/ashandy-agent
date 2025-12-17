@@ -150,10 +150,22 @@ async def receive_whatsapp_webhook(request: Request, payload: WhatsAppWebhookPay
             "order_intent": False,
             "requires_handoff": False,
             "query_type": "text",
-            "last_user_message": user_message_content
+            "last_user_message": user_message_content,
+            # Reset task execution state for fresh processing  
+            "task_statuses": {},  # Prevent loading stale failed statuses
+            "plan": [], # Fresh plan for new message
+            # Reset task execution state for fresh processing
+            "task_statuses": {},  # Prevent loading stale failed statuses
+            "plan": []  # Fresh plan for new message
         }
         
-        final_state = await agent_app.ainvoke(input_state, config={"configurable": {"thread_id": from_phone}})
+        final_state = await agent_app.ainvoke(
+            input_state, 
+            config={
+                "configurable": {"thread_id": from_phone},
+                "recursion_limit":100 # Increased from default 25 to handle review retry loops
+            }
+        )
         
         final_messages = final_state.get("messages", [])
         last_reply = None
@@ -170,7 +182,11 @@ async def receive_whatsapp_webhook(request: Request, payload: WhatsAppWebhookPay
         if user_message_content and last_reply:
             try:
                 from app.tools.vector_tools import save_user_interaction
-                await save_user_interaction(user_id=from_phone, user_msg=user_message_content, ai_msg=last_reply)
+                await save_user_interaction.ainvoke({
+                    "user_id": from_phone,
+                    "user_msg": user_message_content,
+                    "ai_msg": last_reply
+                })
             except Exception as e:
                 logger.error(f"Memory save error: {e}")
         
@@ -291,7 +307,13 @@ async def receive_instagram_webhook(payload: InstagramWebhookPayload):
             "last_user_message": text_content
         }
         
-        final_state = await graph_app.ainvoke(input_state, config={"configurable": {"thread_id": sender_id}})
+        final_state = await graph_app.ainvoke(
+            input_state, 
+            config={
+                "configurable": {"thread_id": sender_id},
+                "recursion_limit": 50  # Increased from default 25 to handle review retry loops
+            }
+        )
         
         final_messages = final_state.get("messages", [])
         last_reply = final_messages[-1].content if final_messages else None
@@ -299,7 +321,11 @@ async def receive_instagram_webhook(payload: InstagramWebhookPayload):
         if text_content and last_reply:
             try:
                 from app.tools.vector_tools import save_user_interaction
-                await save_user_interaction(user_id=sender_id, user_msg=text_content, ai_msg=last_reply)
+                await save_user_interaction.ainvoke({
+                    "user_id": sender_id,
+                    "user_msg": text_content,
+                    "ai_msg": last_reply
+                })
             except Exception as e:
                 logger.error(f"Instagram memory error: {e}")
         
