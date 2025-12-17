@@ -1,6 +1,10 @@
 from mcp.server.fastmcp import FastMCP
 from src.tomtom_client import TomTomClient
 import logging
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Initialize Server
 mcp = FastMCP("ashandy-logistics")

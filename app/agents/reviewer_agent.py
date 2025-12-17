@@ -9,7 +9,7 @@ import json
 
 logger = logging.getLogger(__name__)
 
-MAX_RETRIES = 2
+MAX_RETRIES = 4  # 5 total attempts (1 initial + 4 retries) before escalation
 
 
 async def reviewer_agent_node(state: AgentState, worker_scope: str = None):
@@ -79,10 +79,30 @@ A. **Accuracy**: Does output match evidence? Reject if prices/facts contradict e
 B. **Completeness**: Did worker attempt to address the task?
 C. **Safety**: No JSON/code traces? Polite response?
 
-### SPECIAL RULES (IMPORTANT)
-- **SALES UPSELLING**: If exact product unavailable but worker recommended SIMILAR products, this is VALID behavior → APPROVE
-- "Similar products" or "alternatives" when exact match not found → APPROVE
-- Worker must NOT invent products not in evidence
+### CRITICAL ANTI-HALLUCINATION RULES ⚠️
+1. **NO TOOL EVIDENCE = REJECT** for product recommendations
+   - If worker mentions product names or prices WITHOUT tool evidence → **REJECT**
+   - Worker MUST have called search_products first
+   - Only greetings and general responses can skip tools
+
+2. **PRODUCT CLAIMS NEED PROOF**:
+   - Every product name in output MUST appear in tool evidence
+   - Every price ₦X,XXX MUST come from tool evidence
+   - If output has products but no evidence block → **REJECT**
+
+3. **PURCHASE CONFIRMATION EXCEPTIONS** (APPROVE without fresh tool evidence):
+   - If task mentions "Process order" or "purchase confirmation" → Product was already verified
+   - Requesting delivery details is VALID for payment flow
+   - "To complete your order, please provide..." → APPROVE
+   - Delivery fee calculations from calculate_delivery_fee → APPROVE
+   - Payment link generation → APPROVE
+
+4. **Valid exceptions** (can APPROVE without tool evidence):
+   - Simple greetings/farewells
+   - "I'll check for you" type responses
+   - Error acknowledgments
+   - **Delivery detail requests** ("Please provide your name/address/phone")
+   - **Payment flow messages** (requesting info to generate payment link)
 
 ### OUTPUT (JSON ONLY)
 {{"verdict": "APPROVE" | "REJECT", "critique": "Reason if REJECT", "correction": "Optional fix"}}
@@ -90,6 +110,8 @@ C. **Safety**: No JSON/code traces? Polite response?
 **Rules:**
 - "No active task" → REJECT
 - Error traces → REJECT
+- Product names without tool evidence (in PRODUCT SEARCH tasks only) → REJECT
+- Delivery detail requests in payment flow → **APPROVE**
 - Matches evidence OR offers valid alternatives → APPROVE
 """
 

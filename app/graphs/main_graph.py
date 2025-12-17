@@ -168,4 +168,7 @@ workflow.add_conditional_edges(
     {"end_block": END, END: END}
 )
 
-app = workflow.compile()
+# Add checkpointer for conversation state persistence
+from langgraph.checkpoint.memory import MemorySaver
+memory = MemorySaver()
+app = workflow.compile(checkpointer=memory)

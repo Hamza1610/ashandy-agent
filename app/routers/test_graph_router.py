@@ -32,15 +32,42 @@ async def test_graph_message(request: TestMessageRequest):
     """Test graph workflow. POST {"message": "Do you have lipstick?", "user_id": "test_123"}"""
     try:
         from app.graphs.main_graph import app as graph_app
-        from langchain_core.messages import HumanMessage
+        from langchain_core.messages import HumanMessage, AIMessage
+        from app.services.db_service import AsyncSessionLocal
+        from sqlalchemy import text
         
         logger.info(f"Test: {request.message}")
         
+        # Load conversation history from database
+        messages = []
+        try:
+            async with AsyncSessionLocal() as session:
+                query = text("""
+                    SELECT role, content FROM message_logs 
+                    WHERE user_id = :user_id 
+                    ORDER BY created_at DESC LIMIT 10
+                """)
+                result = await session.execute(query, {"user_id": request.user_id})
+                rows = result.fetchall()
+                
+                # Reverse to get chronological order (oldest first)
+                for row in reversed(rows):
+                    role, content = row
+                    if role == "user":
+                        messages.append(HumanMessage(content=content))
+                    elif role == "assistant":
+                        messages.append(AIMessage(content=content))
+        except Exception as e:
+            logger.warning(f"Could not load history: {e}")
+        
+        # Add current message
+        messages.append(HumanMessage(content=request.message))
+        
         input_state = {
-            "messages": [HumanMessage(content=request.message)],
+            "messages": messages,
             "user_id": request.user_id,
             "session_id": f"test_{request.user_id}",
-            "platform": request.platform,
+            "platform": "test",
             "is_admin": request.is_admin,
             "blocked": False,
             "order_intent": False,

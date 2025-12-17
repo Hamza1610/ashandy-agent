@@ -26,6 +26,9 @@ class PHPPOSClient:
             "x-api-key": self.api_key,
             "User-Agent": "Ashandy-MCP-Server/1.0"
         }
+        # Debug: Log configuration on init
+        logger.info(f"🔧 POS Client initialized: base_url={self.base_url}")
+        logger.info(f"🔧 API Key configured: {'YES (' + self.api_key[:8] + '...)' if self.api_key else 'NO - MISSING!'}")
 
     async def search_items(self, query: str) -> str:
         """
@@ -34,34 +37,63 @@ class PHPPOSClient:
         """
 
         #>> Hamza[task]: modify search items to be only "skincare" category fomr the search
+        # PHPPOS API uses query params for filtering: ?search=keyword&limit=100
         url = f"{self.base_url}/items"
-        logger.info(f"Searching POS: {url} with query '{query}'")
+        params = {
+            "search": query,
+            "limit": 100  # Get more results to filter by category client-side
+        }
+        logger.info(f"🔍 Searching POS: {url}?search={query}")
+        logger.info(f"🔑 Headers: x-api-key={'SET' if self.api_key else 'MISSING'}")
         
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.get(url, headers=self.headers)
+                response = await client.get(url, headers=self.headers, params=params)
+                
+                logger.info(f"📡 POS Response status: {response.status_code}")
                 
                 if response.status_code != 200:
-                    logger.error(f"POS Error {response.status_code}: {response.text}")
-                    # Fallback for dev/demo if needed
-                    # return self._get_mock_data(query) 
-                    return f"Error connecting to POS: {response.status_code}"
+                    logger.error(f"❌ POS Error {response.status_code}: {response.text[:500]}")
+                    # Fallback to mock data on API errors
+                    return self._get_mock_data(query)
+
 
                 items = response.json()
+                logger.info(f"📦 POS returned {len(items) if isinstance(items, list) else 'non-list'} items")
                 
-                # Filter Logic (Same as original tool)
+                # DEBUG: Log sample categories to verify correct category_id format
+                if isinstance(items, list) and len(items) > 0:
+                    sample_cats = set(item.get("category_id", item.get("category", "UNKNOWN")) for item in items[:20])
+                    logger.info(f"🏷️ Sample categories in POS: {sample_cats}")
+                
+                # CATEGORY FILTER: Only return skincare items
+                # PHPPOS uses 'category_id' field with uppercase values (e.g., "SKIN CARE")
+                ALLOWED_CATEGORY = "SKIN CARE"
+                
                 matches = []
                 query_lower = query.lower()
                 
                 for item in items:
                     name = item.get("name", "").lower()
+                    # PHPPOS uses 'category_id' not 'category' - check both for compatibility
+                    category = item.get("category_id", item.get("category", "")).upper()
+                    
+                    # Only include skincare products
+                    if category != ALLOWED_CATEGORY:
+                        continue
+                    
                     if query_lower in name or query_lower == str(item.get("item_id")):
                         matches.append(item)
                         if len(matches) >= 5:
                             break
                 
                 if not matches:
-                    return f"No matching products found for '{query}'."
+                    # Fallback to mock data if live POS returns nothing
+                    logger.info(f"No matches in live POS. Trying mock data for '{query}'")
+                    mock_result = self._get_mock_data(query)
+                    if mock_result and "No products found" not in mock_result:
+                        return mock_result
+                    return f"No matching skincare products found for '{query}'. We currently only sell skincare items through this channel."
 
                 # Format Logic
                 result_str = ""
@@ -202,8 +234,12 @@ Image: {item.get('image_id')}
             products = data.get("products", [])
             query_lower = query.lower()
             
-            # Search for matching products
-            matches = [p for p in products if query_lower in p.get("name", "").lower()][:5]
+            # Search for matching products (skincare only for consistency with live POS)
+            matches = [
+                p for p in products 
+                if query_lower in p.get("name", "").lower()
+                and p.get("category_id", p.get("category", "")).upper() == "SKIN CARE"
+            ][:5]
             
             if not matches:
                 return f"No products found matching '{query}'."

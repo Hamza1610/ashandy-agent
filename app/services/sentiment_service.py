@@ -70,7 +70,9 @@ class SentimentService:
         text_lower = text.lower()
         
         # Keyword-based classification
-        purchase_keywords = {'buy', 'order', 'want', 'get', 'purchase', 'pay', 'checkout', 'cart', 'deliver'}
+        # Include variations of purchase confirmation (I'll take, give me, yes, etc.)
+        purchase_keywords = {'buy', 'order', 'want', 'get', 'purchase', 'pay', 'checkout', 'cart', 'deliver',
+                            'take', 'give me', "i'll take", 'add to', 'yes', 'reserve', 'proceed'}
         inquiry_keywords = {'price', 'cost', 'stock', 'available', 'how much', 'do you have', 'what is', 'show me'}
         complaint_keywords = {'problem', 'issue', 'wrong', 'broken', 'refund', 'return', 'complaint', 'not working'}
         greeting_keywords = {'hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening'}

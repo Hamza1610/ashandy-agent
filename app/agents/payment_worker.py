@@ -8,7 +8,7 @@ from app.tools.tomtom_tools import calculate_delivery_fee
 from app.tools.delivery_validation_tools import request_delivery_details, check_delivery_ready, DEFAULT_EMAIL
 from app.services.llm_service import get_llm
 from app.utils.brand_voice import WHATSAPP_FORMAT_RULES
-from langchain_core.messages import SystemMessage, AIMessage
+from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
 import logging
 import json
 
@@ -132,7 +132,36 @@ Order: {json.dumps(order_data, default=str)}
                     tool_res = await create_order_record.ainvoke(args)
                 
                 tool_evidence.append({"tool": name, "args": args, "output": str(tool_res)[:500]})
-                final_output += f"\nResult of {name}: {str(tool_res)}"
+            
+            # Pass tool outputs back to LLM for conversational formatting
+            tool_outputs_text = ""
+            for item in tool_evidence:
+                tool_outputs_text += f"\n{item['output']}"
+            
+            if tool_outputs_text.strip():
+                formatting_prompt = f"""You ARE Awéléwà, the payment and delivery specialist for Ashandy Home of Cosmetics.
+
+PAYMENT/DELIVERY DATA:
+{tool_outputs_text}
+
+RESPOND DIRECTLY TO THE CUSTOMER. Do NOT include meta-text like "Here's a response:" or "I would say:".
+
+YOUR RESPONSE MUST:
+- Be in FIRST PERSON (I've calculated, Here's your link, Your order)
+- Present pricing clearly with ₦ symbol
+- If payment link exists, present it prominently
+- Explain next steps (After payment, you'll receive...)
+- Keep it concise but complete
+- Use emojis: 💳 🛍️ 📦 ✨
+- NEVER show raw data like "Result of tool:"
+
+NOW RESPOND AS AWÉLÉWÀ:"""
+                format_response = await get_llm(model_type="fast", temperature=0.3).ainvoke(
+                    [HumanMessage(content=formatting_prompt)]
+                )
+                final_output = format_response.content
+            else:
+                final_output = response.content
                 
         return {
             "worker_outputs": {my_task["id"]: final_output},

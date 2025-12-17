@@ -140,6 +140,46 @@ async def supervisor_agent_node(state: AgentState):
                     "messages": [AIMessage(content="I cannot respond to that message due to safety guidelines.")]
                 }
 
+        # OFF-TOPIC FILTER: Block queries unrelated to cosmetics/store
+        if len(clean_text) > 5 and not is_admin:
+            # Keywords that indicate relevant topics
+            RELEVANT_KEYWORDS = {
+                # Products
+                'skin', 'cream', 'lotion', 'serum', 'toner', 'cleanser', 'moistur', 'sunscreen', 
+                'face', 'body', 'oil', 'vitamin', 'cosmetic', 'beauty', 'makeup', 'lipstick',
+                'foundation', 'mascara', 'skincare', 'glow', 'acne', 'pimple', 'dark spot',
+                'whitening', 'brightening', 'anti-aging', 'wrinkle', 'hydrat',
+                # Store/Business
+                'price', 'cost', 'buy', 'order', 'delivery', 'deliver', 'pay', 'payment',
+                'stock', 'available', 'location', 'address', 'shop', 'store', 'open', 'close',
+                'refund', 'return', 'exchange', 'manager', 'contact', 'complain',
+                # Actions
+                'show', 'get', 'want', 'need', 'looking', 'recommend', 'suggest', 'help',
+                'take', 'give', 'purchase', 'checkout', 'cart', 'product', 'item',
+                # Greetings (allowed)
+                'hello', 'hi', 'hey', 'good morning', 'good afternoon', 'thanks', 'thank',
+                # Questions about the bot
+                'who are you', 'what can you do', 'how do', 'awelewa', 'ashandy'
+            }
+            
+            # Check if message contains any relevant keywords
+            is_relevant = any(kw in clean_text for kw in RELEVANT_KEYWORDS)
+            
+            if not is_relevant:
+                logger.info(f"Supervisor: OFF-TOPIC query blocked: '{clean_text[:50]}'")
+                return {
+                    "supervisor_verdict": "block",
+                    "messages": [AIMessage(content=(
+                        "I'm Awéléwà, your skincare and cosmetics assistant at Ashandy Home of Cosmetics! 💄✨ "
+                        "I can help you with:\n\n"
+                        "• Finding the perfect skincare products\n"
+                        "• Checking prices and availability\n"
+                        "• Placing orders and delivery\n"
+                        "• Store information and policies\n\n"
+                        "What skincare product can I help you with today? 💕"
+                    ))]
+                }
+
         # Sentiment analysis and logging
         platform = state.get("platform", "whatsapp")
         sentiment_score = sentiment_service.analyze(content_text)
@@ -172,9 +212,14 @@ async def supervisor_agent_node(state: AgentState):
         
         # Store original message for cache key later
         logger.info(f"Supervisor: Input Safe. Sentiment={sentiment_score:.2f}, Intent={intent}")
+        
+        # Detect order intent from purchase-related intents
+        has_order_intent = intent == 'purchase'
+        
         return {
             "supervisor_verdict": "safe",
-            "last_user_message": content_text  # For caching the response later
+            "last_user_message": content_text,  # For caching the response later
+            "order_intent": has_order_intent  # Flag for purchase intent
         }
     except Exception as e:
         logger.error(f"❌ SUPERVISOR CRASHED: {type(e).__name__}: {e}", exc_info=True)
