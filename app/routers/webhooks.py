@@ -198,16 +198,21 @@ async def receive_whatsapp_webhook(request: Request, payload: WhatsAppWebhookPay
 
 
 @router.post("/twilio/whatsapp")
-async def receive_twilio_webhook(request: Request):
+async def receive_twilio_webhook(
+    From: str = Form(...),
+    Body: str = Form(""),
+    NumMedia: int = Form(0),
+    MediaUrl0: str = Form(None),
+    MediaContentType0: str = Form(None)
+):
     """Process incoming WhatsApp messages via Twilio."""
     from app.graphs.main_graph import app as agent_app
     from langchain_core.messages import HumanMessage
     
     try:
-        form_data = await request.form()
-        from_number = form_data.get("From", "")
-        body = form_data.get("Body", "")
-        num_media = int(form_data.get("NumMedia", 0)) if form_data.get("NumMedia") else 0
+        from_number = From
+        body = Body
+        num_media = int(NumMedia)
         
         # Normalize user_id
         user_id = from_number.replace("whatsapp:", "") if from_number.startswith("whatsapp:") else from_number
@@ -218,9 +223,9 @@ async def receive_twilio_webhook(request: Request):
         
         # Handle Images
         if num_media > 0:
-            media_type = form_data.get("MediaContentType0", "")
+            media_type = MediaContentType0 or ""
             if "image" in media_type:
-                image_url = form_data.get("MediaUrl0")
+                image_url = MediaUrl0
                 
                 # Use User's caption if available, else body
                 # Twilio doesn't always separate caption clearly, often in Body
@@ -295,6 +300,15 @@ async def receive_twilio_webhook(request: Request):
                 })
             except Exception as e:
                 logger.error(f"Memory save error: {e}")
+                
+        # === TWILIO RESPONSE ===
+        if last_reply:
+            try:
+                from app.services.twilio_service import twilio_service
+                logger.info(f"Sending Twilio reply to {user_id}: {last_reply[:50]}...")
+                await twilio_service.send_whatsapp_text(user_id, last_reply)
+            except Exception as e:
+                logger.error(f"Failed to send Twilio reply: {e}")
                 
         return {"status": "processed", "channel": "whatsapp-twilio", "user_id": user_id}
 
