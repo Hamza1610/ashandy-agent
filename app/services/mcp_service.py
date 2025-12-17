@@ -29,11 +29,12 @@ class MCPService:
 
     async def _connect_server(self, name: str, script_path: str):
         """Generic server connection method."""
+        import os
         logger.info(f"Connecting to MCP {name} Server...")
         server_params = StdioServerParameters(
             command=sys.executable,
             args=[script_path],
-            env=None
+            env=os.environ.copy()  # CRITICAL: Pass env vars to subprocess!
         )
         
         try:

@@ -9,22 +9,21 @@ Instead of sending last N messages (expensive), this service:
 This reduces token usage by ~80% while maintaining full context.
 """
 from app.services.llm_service import get_llm
+from app.services.cache_service import cache_service
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, BaseMessage
 from typing import List, Dict, Optional
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
 
 class ConversationSummaryService:
-    """Manages efficient conversation context through summarization."""
-    
-    # Cache summaries per session (in production, use Redis)
-    _summaries: Dict[str, str] = {}
-    _message_counts: Dict[str, int] = {}
+    """Manages efficient conversation context through summarization with Redis persistence."""
     
     SUMMARIZE_EVERY = 5  # Summarize every 5 messages
     RECENT_MESSAGES = 3  # Always include last 3 messages verbatim
+    SUMMARY_TTL = 86400  # 24 hours TTL for summaries
     
     async def get_efficient_context(
         self, 
@@ -43,10 +42,18 @@ class ConversationSummaryService:
             # Short conversation, no summarization needed
             return messages
         
-        # Get current count and summary
+        # Get current count and summary from Redis
         current_count = len(messages)
-        cached_count = self._message_counts.get(session_id, 0)
-        cached_summary = self._summaries.get(session_id, "")
+        cache_key = f"conv_summary:{session_id}"
+        
+        try:
+            cached_data = await cache_service.get_json(cache_key)
+            cached_count = cached_data.get("count", 0) if cached_data else 0
+            cached_summary = cached_data.get("summary", "") if cached_data else ""
+        except Exception as e:
+            logger.warning(f"Redis read error for summary: {e}")
+            cached_count = 0
+            cached_summary = ""
         
         # Check if we need to update summary
         messages_since_summary = current_count - cached_count
@@ -55,8 +62,15 @@ class ConversationSummaryService:
             messages_to_summarize = messages[:-self.RECENT_MESSAGES]
             new_summary = await self._summarize_messages(messages_to_summarize, cached_summary)
             
-            self._summaries[session_id] = new_summary
-            self._message_counts[session_id] = current_count
+            # Save to Redis
+            try:
+                await cache_service.set_json(cache_key, {
+                    "summary": new_summary,
+                    "count": current_count
+                }, ttl=self.SUMMARY_TTL)
+            except Exception as e:
+                logger.warning(f"Redis write error for summary: {e}")
+            
             cached_summary = new_summary
             logger.info(f"Updated summary for {session_id}: {len(new_summary)} chars")
         
@@ -115,10 +129,14 @@ Summary (be concise):"""
             logger.error(f"Summarization failed: {e}")
             return previous_summary or "Unable to generate summary."
     
-    def clear_session(self, session_id: str):
+    async def clear_session(self, session_id: str):
         """Clear cached summary for a session (e.g., after /delete_memory)."""
-        self._summaries.pop(session_id, None)
-        self._message_counts.pop(session_id, None)
+        cache_key = f"conv_summary:{session_id}"
+        try:
+            await cache_service.delete(cache_key)
+            logger.info(f"Cleared conversation summary for {session_id}")
+        except Exception as e:
+            logger.warning(f"Failed to clear summary from Redis: {e}")
 
 
 # Singleton instance

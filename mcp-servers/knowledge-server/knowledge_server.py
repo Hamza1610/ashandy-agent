@@ -3,6 +3,10 @@ from mcp.server.fastmcp import FastMCP
 from src.vector_store import VectorStore
 import logging
 import json
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Initialize FastMCP Server
 mcp = FastMCP("Ashandy Knowledge Server")

@@ -11,7 +11,7 @@ from app.state.agent_state import AgentState
 from app.services.llm_service import get_llm
 from app.services.incident_service import incident_service
 from app.utils.brand_voice import WHATSAPP_FORMAT_RULES
-from langchain_core.messages import SystemMessage, AIMessage
+from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
 from langchain.tools import tool
 import logging
 
@@ -226,8 +226,37 @@ Customer: {user_id}
                     "args": args,
                     "output": str(tool_output)[:500]
                 })
-                
-                final_result += f"\n\n{tool_output}"
+            
+            # Pass tool outputs back to LLM for conversational formatting
+            tool_outputs_text = ""
+            for item in tool_evidence:
+                tool_outputs_text += f"\n{item['output']}"
+            
+            if tool_outputs_text.strip():
+                formatting_prompt = f"""You ARE Awéléwà, the customer support specialist for Ashandy Home of Cosmetics.
+
+SUPPORT ACTION RESULTS:
+{tool_outputs_text}
+
+RESPOND DIRECTLY TO THE CUSTOMER. Do NOT include meta-text like "Here's my response:" or "I would say:".
+
+YOUR RESPONSE MUST:
+- Be in FIRST PERSON (I've created, I understand, I'm sorry)
+- Start with empathy if there's an issue
+- Explain what action was taken
+- Be reassuring and professional
+- Keep it under 300 chars
+- End with reassurance or next steps
+- NEVER show ticket IDs or technical data
+
+NOW RESPOND AS AWÉLÉWÀ:"""
+                from app.services.llm_service import get_llm as get_formatting_llm
+                format_response = await get_formatting_llm(model_type="fast", temperature=0.4).ainvoke(
+                    [HumanMessage(content=formatting_prompt)]
+                )
+                final_result = format_response.content
+            else:
+                final_result = response.content
         
         return {
             "worker_outputs": {task_id: final_result},

@@ -1,6 +1,6 @@
 # Ashandy AI Agent - Complete System Documentation
 
-> **Version:** 2.0 • **Last Updated:** December 16, 2025  
+> **Version:** 2.1 • **Last Updated:** December 17, 2025  
 > **Author:** Team HAI
 
 ---
@@ -181,6 +181,7 @@ sequenceDiagram
 ┌─────────────────────────────────────────────────────────────┐
 │                    🔒 SUPERVISOR AGENT                       │
 │  • Input safety (Llama Guard)                               │
+│  • Off-topic filter (keyword-based)                         │
 │  • Cache lookup (semantic similarity)                       │
 │  • Admin detection                                          │
 │  • Verdict: safe | block | ignore | cached                  │
@@ -203,19 +204,20 @@ sequenceDiagram
 │  • Tracks task statuses                                     │
 └─────────────────────────────────────────────────────────────┘
                               │
-        ┌─────────────────────┼─────────────────────┐
-        ▼                     ▼                     ▼
-┌───────────────┐   ┌───────────────┐   ┌───────────────┐
-│ 💄 SALES      │   │ 💰 PAYMENT    │   │ ⚙️ ADMIN      │
-│   WORKER      │   │   WORKER      │   │   WORKER      │
-│               │   │               │   │               │
-│ • Products    │   │ • Delivery    │   │ • Reports     │
-│ • Prices      │   │ • Payments    │   │ • Approvals   │
-│ • Stock       │   │ • Orders      │   │ • Broadcast   │
-│ • Upselling   │   │ • Confirmations│  │ • Inventory   │
-└───────────────┘   └───────────────┘   └───────────────┘
-        │                     │                     │
-        ▼                     ▼                     ▼
+        ┌─────────────────────┼─────────────────────┬─────────────────────┐
+        ▼                     ▼                     ▼                     ▼
+┌───────────────┐   ┌───────────────┐   ┌───────────────┐   ┌───────────────┐
+│ 💄 SALES      │   │ 💰 PAYMENT    │   │ ⚙️ ADMIN      │   │ 💬 SUPPORT    │
+│   WORKER      │   │   WORKER      │   │   WORKER      │   │   WORKER      │
+│               │   │               │   │               │   │               │
+│ • Products    │   │ • Delivery    │   │ • Reports     │   │ • Complaints  │
+│ • Prices      │   │ • Payments    │   │ • Approvals   │   │ • Tickets     │
+│ • Stock       │   │ • Orders      │   │ • Broadcast   │   │ • Escalation  │
+│ • Upselling   │   │ • Confirmations│  │ • Inventory   │   │ • Empathy     │
+└───────────────┘   └───────────────┘   └───────────────┘   └───────────────┘
+        │                     │                     │                     │
+        └─────────────────────┴─────────────────────┴─────────────────────┘
+                                        │
 ┌───────────────────────────────────────────────────────────┐
 │                    📋 REVIEWER AGENTS                       │
 │  • Scoped per worker type (sales, payment, admin, support) │
@@ -247,14 +249,60 @@ sequenceDiagram
 
 | Agent | File | Lines |
 |-------|------|-------|
-| Supervisor | `app/agents/supervisor_agent.py` | ~220 |
-| Planner | `app/agents/planner_agent.py` | ~120 |
-| Sales Worker | `app/agents/sales_worker.py` | ~170 |
-| Payment Worker | `app/agents/payment_worker.py` | ~160 |
-| Admin Worker | `app/agents/admin_worker.py` | ~200 |
-| Support Worker | `app/agents/support_worker.py` | ~200 |
-| Reviewer | `app/agents/reviewer_agent.py` | ~130 |
+| Supervisor | `app/agents/supervisor_agent.py` | ~300 |
+| Planner | `app/agents/planner_agent.py` | ~130 |
+| Sales Worker | `app/agents/sales_worker.py` | ~225 |
+| Payment Worker | `app/agents/payment_worker.py` | ~175 |
+| Admin Worker | `app/agents/admin_worker.py` | ~210 |
+| Support Worker | `app/agents/support_worker.py` | ~270 |
+| Reviewer | `app/agents/reviewer_agent.py` | ~150 |
 | Conflict Resolver | `app/agents/conflict_resolver_agent.py` | ~80 |
+
+### 3.3 Tool Output Formatting
+
+All customer-facing workers (Sales, Support, Payment) format tool output through a second LLM call to ensure conversational, on-brand responses:
+
+```
+Tool Raw Output → Formatting LLM → Customer-Friendly Response
+```
+
+**Example:**
+```
+Before: "NIVEA SUNSCREEN (Price: 18000, Source: phppos_export)"
+After:  "I found the perfect match! 💕 The *NIVEA SUNSCREEN* at ₦18,000 gives amazing protection! ✨"
+```
+
+**Formatting Prompt Pattern:**
+```python
+formatting_prompt = f\"\"\"You ARE Awéléwà, the friendly AI sales assistant...
+PRODUCT DATA (use this to respond): {tool_output}
+RESPOND DIRECTLY TO THE CUSTOMER. Do NOT include meta-text.
+NOW RESPOND AS AWÉLÉWÀ:\"\"\"
+```
+
+### 3.4 Purchase Confirmation Flow
+
+When user confirms a purchase (e.g., "I'll take the serum"), the system recognizes this as a purchase confirmation and routes directly to payment:
+
+**Planner Recognition:**
+```
+"I'll take the X" / "Yes, give me X" / "Add X to cart"
+→ Intent: CONFIRM_PURCHASE
+→ Route to: payment_worker (NOT sales_worker)
+```
+
+**Reviewer Exception:**
+- Purchase confirmation flows don't require fresh tool evidence
+- "To complete your order, please provide..." → APPROVE
+
+### 3.5 Intent Detection Keywords
+
+```python
+purchase_keywords = {
+    'buy', 'order', 'want', 'get', 'purchase', 'pay', 'checkout',
+    'take', 'give me', "i'll take", 'add to', 'yes', 'reserve', 'proceed'
+}
+```
 
 ---
 
@@ -465,13 +513,15 @@ pending → in_progress → (reviewing ↔ in_progress) → approved/failed
 ├──────────────────────────────────────────────────────────┤
 │ Layer 3: INPUT SAFETY (Llama Guard)                      │
 ├──────────────────────────────────────────────────────────┤
-│ Layer 4: PROMPT SECURITY (Anti-fraud instructions)       │
+│ Layer 4: OFF-TOPIC FILTER (Keyword-based detection)      │
 ├──────────────────────────────────────────────────────────┤
-│ Layer 5: REVIEWER VALIDATION (Evidence-based approval)   │
+│ Layer 5: PROMPT SECURITY (Anti-fraud instructions)       │
 ├──────────────────────────────────────────────────────────┤
-│ Layer 6: OUTPUT SAFETY (Block stack traces, Llama Guard) │
+│ Layer 6: REVIEWER VALIDATION (Evidence-based approval)   │
 ├──────────────────────────────────────────────────────────┤
-│ Layer 7: ADMIN WHITELIST (Phone number verification)     │
+│ Layer 7: OUTPUT SAFETY (Block stack traces, Llama Guard) │
+├──────────────────────────────────────────────────────────┤
+│ Layer 8: ADMIN WHITELIST (Phone number verification)     │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -501,10 +551,11 @@ pending → in_progress → (reviewing ↔ in_progress) → approved/failed
 | Optimization | Impact | Implementation |
 |--------------|--------|----------------|
 | **Semantic Caching** | 80% reduced LLM calls | Redis hash-based lookup |
-| **Conversation Summarization** | 80% token reduction | Rolling summary every 5 msgs |
+| **Conversation Summarization** | 80% token reduction | Rolling summary every 5 msgs, Redis-persisted |
 | **Response Cache Warming** | Instant FAQ responses | Startup preload |
 | **LLM Failover** | 99.9% availability | 3-provider chain |
 | **Circuit Breaker** | Graceful degradation | 60s cooldown |
+| **Graph Checkpointer** | Conversation continuity | MemorySaver for state persistence |
 
 ### 9.2 Reliability Optimizations
 

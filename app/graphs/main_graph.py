@@ -175,12 +175,7 @@ workflow.add_conditional_edges(
     {"end_block": END, END: END}
 )
 
-# Initialize AsyncPostgresSaver for state persistence
-# Note: This uses sync from_conn_string which creates the checkpointer
-# The checkpointer itself handles async operations internally
-async def get_checkpointer():
-    """Initialize and return the async PostgreSQL checkpointer."""
-    return await AsyncPostgresSaver.from_conn_string(settings.DATABASE_URL)
-
-# Compile graph (checkpointer will be set via app.checkpointer assignment)
-app = workflow.compile()
+# Add checkpointer for conversation state persistence
+from langgraph.checkpoint.memory import MemorySaver
+memory = MemorySaver()
+app = workflow.compile(checkpointer=memory)

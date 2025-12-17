@@ -5,7 +5,8 @@
             "name": "CeraVe Hydrating Cleanser (236ml)",
             "unit_price": 8500,
             "description": "Gentle hydrating facial cleanser with ceramides and hyaluronic acid",
-            "category": "skincare",
+            "category": "SKIN CARE",
+            "category_id": "SKIN CARE",
             "locations": {
                 "1": {
                     "quantity": 25
@@ -17,7 +18,8 @@
             "name": "CeraVe Moisturizing Cream (453g)",
             "unit_price": 12500,
             "description": "Rich moisturizing cream for dry to very dry skin",
-            "category": "skincare",
+            "category": "SKIN CARE",
+            "category_id": "SKIN CARE",
             "locations": {
                 "1": {
                     "quantity": 18
@@ -29,7 +31,8 @@
             "name": "The Ordinary Niacinamide 10% + Zinc 1% (30ml)",
             "unit_price": 6800,
             "description": "High-strength vitamin and mineral blemish formula",
-            "category": "skincare",
+            "category": "SKIN CARE",
+            "category_id": "SKIN CARE",
             "locations": {
                 "1": {
                     "quantity": 42
@@ -41,7 +44,8 @@
             "name": "Nivea Body Lotion (400ml)",
             "unit_price": 3500,
             "description": "Nourishing body lotion for all skin types",
-            "category": "body_care",
+            "category": "BODY CARE",
+            "category_id": "BODY CARE",
             "locations": {
                 "1": {
                     "quantity": 55
@@ -53,7 +57,8 @@
             "name": "MAC Ruby Woo Lipstick",
             "unit_price": 15000,
             "description": "Iconic matte red lipstick",
-            "category": "makeup",
+            "category": "MAKEUP",
+            "category_id": "MAKEUP",
             "locations": {
                 "1": {
                     "quantity": 12
@@ -65,7 +70,8 @@
             "name": "Neutrogena Sunscreen SPF50 (88ml)",
             "unit_price": 7500,
             "description": "Ultra-light water-resistant sunscreen",
-            "category": "skincare",
+            "category": "SKIN CARE",
+            "category_id": "SKIN CARE",
             "locations": {
                 "1": {
                     "quantity": 30
@@ -74,37 +80,40 @@
         },
         {
             "item_id": 1007,
-            "name": "Ring Light 10-inch with Tripod",
-            "unit_price": 12000,
-            "description": "Professional ring light for photography and video",
-            "category": "accessories",
+            "name": "Pixi Glow Tonic Facial Toner (250ml)",
+            "unit_price": 9500,
+            "description": "Exfoliating toner with 5% glycolic acid for radiant skin",
+            "category": "SKIN CARE",
+            "category_id": "SKIN CARE",
             "locations": {
                 "1": {
-                    "quantity": 8
+                    "quantity": 20
                 }
             }
         },
         {
             "item_id": 1008,
-            "name": "Dove Beauty Bar (135g x 4)",
-            "unit_price": 2800,
-            "description": "Moisturizing beauty bar pack",
-            "category": "body_care",
+            "name": "The Ordinary Glycolic Acid 7% Toning Solution (240ml)",
+            "unit_price": 7800,
+            "description": "Gentle exfoliating toner for improved skin texture",
+            "category": "SKIN CARE",
+            "category_id": "SKIN CARE",
             "locations": {
                 "1": {
-                    "quantity": 65
+                    "quantity": 15
                 }
             }
         },
         {
             "item_id": 1009,
-            "name": "Maybelline Fit Me Foundation",
-            "unit_price": 4500,
-            "description": "Natural finish liquid foundation",
-            "category": "makeup",
+            "name": "Thayers Witch Hazel Facial Toner (355ml)",
+            "unit_price": 6500,
+            "description": "Alcohol-free rose petal toner for all skin types",
+            "category": "SKIN CARE",
+            "category_id": "SKIN CARE",
             "locations": {
                 "1": {
-                    "quantity": 22
+                    "quantity": 25
                 }
             }
         },
@@ -113,10 +122,24 @@
             "name": "La Roche-Posay Effaclar Duo (40ml)",
             "unit_price": 18500,
             "description": "Dual action acne treatment",
-            "category": "skincare",
+            "category": "SKIN CARE",
+            "category_id": "SKIN CARE",
             "locations": {
                 "1": {
                     "quantity": 6
+                }
+            }
+        },
+        {
+            "item_id": 1011,
+            "name": "Ring Light 10-inch with Tripod",
+            "unit_price": 12000,
+            "description": "Professional ring light for photography and video",
+            "category": "ACCESSORIES",
+            "category_id": "ACCESSORIES",
+            "locations": {
+                "1": {
+                    "quantity": 8
                 }
             }
         }

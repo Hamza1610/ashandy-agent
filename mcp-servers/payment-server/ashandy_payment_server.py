@@ -2,6 +2,10 @@ from mcp.server.fastmcp import FastMCP
 from src.paystack_client import PaystackClient
 import logging
 import asyncio
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Initialize Server
 mcp = FastMCP("ashandy-payment")
