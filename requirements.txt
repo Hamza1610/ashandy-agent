@@ -11,6 +11,7 @@ redis
 hiredis
 langchain
 langgraph
+langgraph-checkpoint-redis
 langsmith
 langchain-community
 requests

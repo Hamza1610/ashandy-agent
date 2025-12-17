@@ -9,7 +9,7 @@ from app.utils.config import settings
 from app.utils.brand_voice import WHATSAPP_FORMAT_RULES
 from app.tools.report_tool import generate_comprehensive_report, generate_weekly_report
 from app.tools.incident_tools import report_incident
-from app.tools.admin_tools import relay_message_to_customer, get_incident_context, resolve_incident
+from app.tools.admin_tools import relay_message_to_customer, get_incident_context, resolve_incident, get_top_customers
 from app.tools.approval_tools import list_pending_approvals, approve_order, reject_order
 import logging
 from datetime import datetime
@@ -25,6 +25,7 @@ ADMIN_TOOLS = [
     get_incident_context,
     resolve_incident,
     report_incident,
+    get_top_customers,  # Lead scoring query
 ]
 
 

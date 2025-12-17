@@ -156,6 +156,24 @@ CREATE TABLE IF NOT EXISTS learned_preferences (
 );
 
 CREATE INDEX IF NOT EXISTS idx_learned_prefs_type ON learned_preferences(preference_type);
+
+-- ============================================================
+-- LEAD SCORING TABLE
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS lead_scores (
+    user_id VARCHAR(255) PRIMARY KEY,
+    score INT DEFAULT 0,
+    recency_score FLOAT DEFAULT 0.0,
+    frequency_score FLOAT DEFAULT 0.0,
+    monetary_score FLOAT DEFAULT 0.0,
+    total_orders INT DEFAULT 0,
+    total_spent FLOAT DEFAULT 0.0,
+    last_order_date TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_lead_scores_score ON lead_scores(score DESC);
 """
 
 

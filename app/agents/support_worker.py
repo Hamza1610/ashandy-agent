@@ -233,23 +233,24 @@ Customer: {user_id}
                 tool_outputs_text += f"\n{item['output']}"
             
             if tool_outputs_text.strip():
-                formatting_prompt = f"""You ARE Awéléwà, the customer support specialist for Ashandy Home of Cosmetics.
+                formatting_prompt = f"""Format this support action result into a friendly response.
 
 SUPPORT ACTION RESULTS:
 {tool_outputs_text}
 
-RESPOND DIRECTLY TO THE CUSTOMER. Do NOT include meta-text like "Here's my response:" or "I would say:".
-
-YOUR RESPONSE MUST:
-- Be in FIRST PERSON (I've created, I understand, I'm sorry)
+RULES:
+- DO NOT introduce yourself (no "I'm Awéléwà" or "I'm your assistant")
 - Start with empathy if there's an issue
 - Explain what action was taken
 - Be reassuring and professional
-- Keep it under 300 chars
+- Keep it under 250 chars
 - End with reassurance or next steps
 - NEVER show ticket IDs or technical data
 
-NOW RESPOND AS AWÉLÉWÀ:"""
+GOOD EXAMPLE:
+"I understand your concern! 💕 I've created a support ticket and our team will reach out within 24 hours. Is there anything else I can help with?"
+
+NOW FORMAT THE RESPONSE:"""
                 from app.services.llm_service import get_llm as get_formatting_llm
                 format_response = await get_formatting_llm(model_type="fast", temperature=0.4).ainvoke(
                     [HumanMessage(content=formatting_prompt)]

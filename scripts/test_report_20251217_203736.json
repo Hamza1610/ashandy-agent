@@ -1,0 +1,325 @@
+{
+  "timestamp": "2025-12-17T20:37:36.285700",
+  "summary": {
+    "total": 32,
+    "passed": 0,
+    "failed": 32,
+    "skipped": 0,
+    "pass_rate": "0.0%"
+  },
+  "by_category": {
+    "product_search": {
+      "passed": 0,
+      "failed": 2,
+      "skipped": 0
+    },
+    "visual_search": {
+      "passed": 0,
+      "failed": 1,
+      "skipped": 0
+    },
+    "category_check": {
+      "passed": 0,
+      "failed": 1,
+      "skipped": 0
+    },
+    "order_flow": {
+      "passed": 0,
+      "failed": 7,
+      "skipped": 0
+    },
+    "memory": {
+      "passed": 0,
+      "failed": 2,
+      "skipped": 0
+    },
+    "feedback": {
+      "passed": 0,
+      "failed": 1,
+      "skipped": 0
+    },
+    "support": {
+      "passed": 0,
+      "failed": 2,
+      "skipped": 0
+    },
+    "compliance": {
+      "passed": 0,
+      "failed": 1,
+      "skipped": 0
+    },
+    "admin": {
+      "passed": 0,
+      "failed": 6,
+      "skipped": 0
+    },
+    "complete_flow": {
+      "passed": 0,
+      "failed": 5,
+      "skipped": 0
+    },
+    "edge_case": {
+      "passed": 0,
+      "failed": 4,
+      "skipped": 0
+    }
+  },
+  "details": [
+    {
+      "id": "A1",
+      "name": "Product Inquiry - Existing",
+      "status": "failed",
+      "duration_ms": 1867553.476,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "A2",
+      "name": "Visual Search",
+      "status": "failed",
+      "duration_ms": 60515.615,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "A3",
+      "name": "Product Not Found - Alternatives",
+      "status": "failed",
+      "duration_ms": 60267.512,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "A4",
+      "name": "Category Restriction",
+      "status": "failed",
+      "duration_ms": 60269.781,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "A5",
+      "name": "Add to Order",
+      "status": "failed",
+      "duration_ms": 60269.167,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "A6",
+      "name": "Add Multiple Items",
+      "status": "failed",
+      "duration_ms": 61278.64,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "A7",
+      "name": "Complete Order - Summary",
+      "status": "failed",
+      "duration_ms": 61264.46,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "A8",
+      "name": "Confirm Order",
+      "status": "failed",
+      "duration_ms": 61319.057,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "A9",
+      "name": "Provide Address",
+      "status": "failed",
+      "duration_ms": 61271.979,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "A10",
+      "name": "Check Delivery Fee",
+      "status": "failed",
+      "duration_ms": 61295.348,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "A11",
+      "name": "Complete Checkout",
+      "status": "failed",
+      "duration_ms": 61276.075,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "A12",
+      "name": "Memory Retrieval",
+      "status": "failed",
+      "duration_ms": 60269.365,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "A13",
+      "name": "Memory Save",
+      "status": "failed",
+      "duration_ms": 61287.166,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "A14",
+      "name": "Sentiment Detection - Positive",
+      "status": "failed",
+      "duration_ms": 60274.450000000004,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "A15",
+      "name": "Complaint Handling",
+      "status": "failed",
+      "duration_ms": 60262.788,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "A16",
+      "name": "Escalation Request",
+      "status": "failed",
+      "duration_ms": 60273.246999999996,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "A17",
+      "name": "NDPR Data Deletion",
+      "status": "failed",
+      "duration_ms": 60271.202000000005,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "B1",
+      "name": "Admin Analytics",
+      "status": "failed",
+      "duration_ms": 60265.536,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "B2",
+      "name": "Admin Report",
+      "status": "failed",
+      "duration_ms": 60349.486,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "B3",
+      "name": "Admin - List Approvals",
+      "status": "failed",
+      "duration_ms": 60275.633,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "B4",
+      "name": "Admin - Approve Order",
+      "status": "failed",
+      "duration_ms": 60280.4,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "B5",
+      "name": "Admin - Customer Message",
+      "status": "failed",
+      "duration_ms": 60274.796,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "B6",
+      "name": "Admin - Log Incident",
+      "status": "failed",
+      "duration_ms": 60281.49,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "C1-1",
+      "name": "Complete Flow: Inquiry",
+      "status": "failed",
+      "duration_ms": 60271.736,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "C1-2",
+      "name": "Complete Flow: Selection",
+      "status": "failed",
+      "duration_ms": 61267.007999999994,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "C1-3",
+      "name": "Complete Flow: Checkout Start",
+      "status": "failed",
+      "duration_ms": 61265.909999999996,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "C1-4",
+      "name": "Complete Flow: Address",
+      "status": "failed",
+      "duration_ms": 61282.127,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "C1-5",
+      "name": "Complete Flow: Payment",
+      "status": "failed",
+      "duration_ms": 61276.867000000006,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "D1",
+      "name": "High-Value Order",
+      "status": "failed",
+      "duration_ms": 60270.543000000005,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "D2",
+      "name": "Greeting Only",
+      "status": "failed",
+      "duration_ms": 60265.245,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "D3",
+      "name": "Off-Topic Query",
+      "status": "failed",
+      "duration_ms": 60269.462,
+      "response_preview": null,
+      "error": ""
+    },
+    {
+      "id": "D4",
+      "name": "Repeated Query (Cache Hit)",
+      "status": "failed",
+      "duration_ms": 60254.038,
+      "response_preview": null,
+      "error": ""
+    }
+  ]
+}

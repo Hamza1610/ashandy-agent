@@ -8,6 +8,7 @@ from app.tools.visual_tools import process_image_for_search, detect_product_from
 from app.services.policy_service import get_policy_for_query
 from app.services.llm_service import get_llm
 from app.services.conversation_summary_service import conversation_summary_service
+from app.utils.order_parser import extract_order_items, format_items_summary, calculate_total
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 import logging
 
@@ -65,6 +66,77 @@ async def sales_worker_node(state: AgentState):
         
         policy_context = get_policy_for_query(last_user_msg + " " + task_desc)
         policy_block = f"\n### RELEVANT POLICIES\n{policy_context}\n" if policy_context else ""
+
+        # Order management context
+        ordered_items = state.get("ordered_items", [])
+        if not ordered_items:
+            # Try to extract from conversation if not in state
+            ordered_items = extract_order_items(messages)
+        
+        order_block = ""
+        if ordered_items:
+            items_summary = format_items_summary(ordered_items)
+            totals = calculate_total(ordered_items, 0)  # 0 transport for now
+            order_block = f"""
+### CURRENT ORDER
+{items_summary}
+**Subtotal:** ₦{totals['items_total']:,.0f}
+"""
+
+        # ========== USER MEMORY (Personalization) ==========
+        user_memory_block = ""
+        try:
+            memory_result = await retrieve_user_memory.ainvoke(user_id)
+            if memory_result and "Error" not in str(memory_result) and len(str(memory_result)) > 20:
+                user_memory_block = f"""
+### 🧠 CUSTOMER PROFILE (Use for personalization!)
+{str(memory_result)[:500]}
+- Reference past purchases if relevant
+- Use their name if known
+- Recommend similar products to what they bought before
+"""
+                logger.info(f"User memory loaded for {user_id}")
+        except Exception as e:
+            logger.debug(f"Could not load user memory: {e}")
+
+        # ========== VISUAL SEARCH (Auto-analyze images) ==========
+        visual_analysis_block = ""
+        if image_url:
+            try:
+                logger.info(f"🖼️ Auto-analyzing image: {image_url}")
+                visual_result = await detect_product_from_image.ainvoke(image_url)
+                if visual_result and isinstance(visual_result, dict):
+                    detected_text = visual_result.get("detected_text", "")
+                    product_type = visual_result.get("product_type", "")
+                    visual_desc = visual_result.get("visual_description", "")
+                    matched = visual_result.get("matched_products", "")
+                    
+                    visual_analysis_block = f"""
+### 📸 IMAGE ANALYSIS (Customer sent a product image!)
+**Detected Text:** {detected_text}
+**Product Type:** {product_type}
+**Description:** {visual_desc}
+**Similar Products in Store:** {str(matched)[:300]}
+
+IMPORTANT: Search for products matching this analysis! Use the detected text or product type.
+"""
+                    logger.info(f"Visual analysis complete: {product_type}")
+            except Exception as e:
+                logger.warning(f"Visual analysis failed: {e}")
+                visual_analysis_block = f"\n[Image Available: {image_url} - Use detect_product_from_image to analyze]\n"
+
+        # ========== FEEDBACK LEARNING (User preferences) ==========
+        preferences_block = ""
+        try:
+            from app.services.feedback_service import feedback_service
+            user_prefs = await feedback_service.get_user_preference(user_id)
+            if user_prefs:
+                preferences_block = f"""
+### 💡 LEARNED PREFERENCES
+{str(user_prefs)[:300]}
+"""
+        except Exception as e:
+            logger.debug(f"Could not load preferences: {e}")
 
         # Tools and LLM
         tools = [search_products, check_product_stock, save_user_interaction, detect_product_from_image, retrieve_user_memory]
@@ -132,12 +204,28 @@ You ONLY sell **SKINCARE** products from our POS system.
 "I'm so sorry love 💕 I currently only assist with our skincare line! But I've noted your interest in [product] - our manager will reach out to you soon about that! While you wait, can I show you our best-selling facial cleansers or moisturizers? ✨"
 
 {policy_block}
+### ORDER MANAGEMENT
+{order_block}
+
+**When task says "Add to order":**
+1. Verify product with search_products first
+2. Confirm: "Added *[Product]* at ₦X,XXX! 🛍️ Would you like anything else?"
+3. Keep response SHORT
+
+**When task says "Show order summary":**
+1. List ALL items in the order with prices
+2. Show subtotal
+3. Ask: "Ready to checkout? Just say 'confirm' to proceed! ✨"
+
 ### TASK
 "{task_desc}"
 
 ### CONTEXT
 User: {user_id}
 {visual_info_block}
+{user_memory_block}
+{visual_analysis_block}
+{preferences_block}
 
 ### OUTPUT
 Be warm, persuasive, CONCISE (2-3 sentences max).
@@ -186,25 +274,29 @@ Transform tool data into a sales pitch, then ask a closing question!
             
             if tool_outputs_text.strip():
                 # Second LLM call to format tool output into sales pitch
-                # CRITICAL: Prompt must instruct to respond AS the character, not ABOUT the character
-                formatting_prompt = f"""You ARE Awéléwà, the friendly AI sales assistant for Ashandy Home of Cosmetics.
+                formatting_prompt = f"""Format this product data into a friendly sales response.
 
-PRODUCT DATA (use this to respond):
+PRODUCT DATA:
 {tool_outputs_text}
 
-RESPOND DIRECTLY TO THE CUSTOMER. Do NOT include any meta-text like "Here's a response:" or "I would say:".
-
-YOUR RESPONSE MUST:
-- Be in FIRST PERSON (I found, I recommend, Let me show you)
+RULES:
+- DO NOT introduce yourself (no "I'm Awéléwà" or "I'm your assistant")
+- Jump straight into showing the products
 - Pick 2-3 BEST products max
 - Use *bold* for product names and prices  
 - Explain WHY each product is great
 - Use emojis: ✨ 💄 🛍️ 💕 💧
-- Keep it under 300 chars
+- Keep it under 250 chars
 - End with a call-to-action question
 - NEVER include "ID:", "Source:", or technical data
 
-NOW RESPOND AS AWÉLÉWÀ:"""
+GOOD EXAMPLE:
+"I found some great options for you! ✨ The *NIVEA SUNSCREEN* at ₦18,000 gives amazing protection! 💕 Want me to add it to your order?"
+
+BAD EXAMPLE (don't do this):
+"I'm Awéléwà, your friendly AI sales assistant! 💄 I found..."
+
+NOW FORMAT THE RESPONSE:"""
                 format_response = await get_llm(model_type="fast", temperature=0.5).ainvoke(
                     [HumanMessage(content=formatting_prompt)]
                 )
@@ -213,12 +305,39 @@ NOW RESPOND AS AWÉLÉWÀ:"""
                 # No tool output, use original response
                 final_result = response.content
         
+        # ========== SAVE TO LONG-TERM MEMORY ==========
+        try:
+            await save_user_interaction.ainvoke({
+                "user_id": user_id,
+                "user_msg": last_user_msg[:300] if last_user_msg else "",
+                "ai_msg": final_result[:300] if final_result else ""
+            })
+            logger.debug(f"Saved interaction to memory for {user_id}")
+        except Exception as e:
+            logger.debug(f"Could not save to memory: {e}")
+        
+        # ========== EXTRACT PRODUCT RECOMMENDATIONS ==========
+        product_recommendations = []
+        for evidence in tool_evidence:
+            if evidence.get("tool") == "search_products":
+                output = evidence.get("output", "")
+                # Parse product names and prices from search results
+                import re
+                matches = re.findall(r'Name:\s*([^\n]+?)(?:\s*Price|\s*₦)', str(output))
+                prices = re.findall(r'(?:Price|₦)\s*([\d,]+)', str(output))
+                for i, name in enumerate(matches[:5]):  # Top 5 products
+                    price = float(prices[i].replace(',', '')) if i < len(prices) else 0
+                    product_recommendations.append({"name": name.strip(), "price": price})
+        
         return {
             "worker_outputs": {task_id: final_result},
             "worker_tool_outputs": {task_id: tool_evidence},
-            "messages": [AIMessage(content=final_result)]
+            "messages": [AIMessage(content=final_result)],
+            "ordered_items": ordered_items,  # Persist order items in state
+            "product_recommendations": product_recommendations  # For cross-selling
         }
 
     except Exception as e:
         logger.error(f"Sales Worker Error: {e}", exc_info=True)
         return {"worker_result": f"Error executing task: {str(e)}"}
+

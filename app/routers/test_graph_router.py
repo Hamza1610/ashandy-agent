@@ -63,6 +63,22 @@ async def test_graph_message(request: TestMessageRequest):
         # Add current message
         messages.append(HumanMessage(content=request.message))
         
+        # Try to get previous state from checkpointer to preserve order_intent
+        previous_order_intent = False
+        previous_order = None
+        previous_order_data = None
+        try:
+            from app.graphs.main_graph import app as graph_check
+            config = {"configurable": {"thread_id": request.user_id}}
+            state_snapshot = graph_check.get_state(config)
+            if state_snapshot and state_snapshot.values:
+                previous_order_intent = state_snapshot.values.get("order_intent", False)
+                previous_order = state_snapshot.values.get("order")
+                previous_order_data = state_snapshot.values.get("order_data")
+                logger.info(f"Loaded previous state: order_intent={previous_order_intent}, order={previous_order}")
+        except Exception as e:
+            logger.debug(f"No previous state: {e}")
+        
         input_state = {
             "messages": messages,
             "user_id": request.user_id,
@@ -70,7 +86,9 @@ async def test_graph_message(request: TestMessageRequest):
             "platform": "test",
             "is_admin": request.is_admin,
             "blocked": False,
-            "order_intent": False,
+            "order_intent": previous_order_intent,  # Preserve from previous state!
+            "order": previous_order,  # Preserve order data
+            "order_data": previous_order_data,  # Preserve order_data for delivery details
             "requires_handoff": False,
             # Initialize empty structures to prevent KeyError in new nodes
             "task_statuses": {},

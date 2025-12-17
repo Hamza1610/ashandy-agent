@@ -85,19 +85,26 @@ C. **Safety**: No JSON/code traces? Polite response?
    - Worker MUST have called search_products first
    - Only greetings and general responses can skip tools
 
-2. **PRODUCT CLAIMS NEED PROOF**:
+2. **CATEGORY FLEXIBILITY** (IMPORTANT - avoid over-rejection):
+   - If user asks for "X cream" and search returns "X lotion" → **APPROVE** (same brand, similar purpose)
+   - Related product categories are acceptable: cream ≈ lotion ≈ moisturizer ≈ butter ≈ body milk
+   - Face products when asked for body products (same brand) → **APPROVE with note**
+   - Only REJECT if products are completely unrelated (e.g., asked for lipstick, got cleanser)
+   - The goal is HELPFULNESS, not pedantic matching
+
+3. **PRODUCT CLAIMS NEED PROOF**:
    - Every product name in output MUST appear in tool evidence
    - Every price ₦X,XXX MUST come from tool evidence
    - If output has products but no evidence block → **REJECT**
 
-3. **PURCHASE CONFIRMATION EXCEPTIONS** (APPROVE without fresh tool evidence):
+4. **PURCHASE CONFIRMATION EXCEPTIONS** (APPROVE without fresh tool evidence):
    - If task mentions "Process order" or "purchase confirmation" → Product was already verified
    - Requesting delivery details is VALID for payment flow
    - "To complete your order, please provide..." → APPROVE
    - Delivery fee calculations from calculate_delivery_fee → APPROVE
    - Payment link generation → APPROVE
 
-4. **Valid exceptions** (can APPROVE without tool evidence):
+5. **Valid exceptions** (can APPROVE without tool evidence):
    - Simple greetings/farewells
    - "I'll check for you" type responses
    - Error acknowledgments

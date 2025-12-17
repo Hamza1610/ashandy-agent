@@ -66,7 +66,12 @@ async def supervisor_agent_node(state: AgentState):
         user_id = state.get("user_id", "unknown")
 
         # NDPR: /delete_memory command (Right to be Forgotten)
-        if clean_text in ["/delete_memory", "/deletememory", "delete my memory", "delete my data"]:
+        ndpr_triggers = [
+            "/delete_memory", "/deletememory", "delete my memory", "delete my data",
+            "forget me", "remove my data", "erase my information", "forget my data",
+            "delete all my data", "remove my information"
+        ]
+        if clean_text in ndpr_triggers or any(t in clean_text for t in ["forget me", "delete my data", "remove my data"]):
             logger.info(f"Supervisor: NDPR deletion request from {user_id}")
             try:
                 from app.services.ndpr_service import ndpr_service
@@ -141,7 +146,11 @@ async def supervisor_agent_node(state: AgentState):
                 }
 
         # OFF-TOPIC FILTER: Block queries unrelated to cosmetics/store
-        if len(clean_text) > 5 and not is_admin:
+        # SKIP if: (1) in order flow, (2) message looks like delivery details, (3) admin
+        order_intent = state.get("order_intent", False)
+        has_digits = any(c.isdigit() for c in clean_text)  # Phone numbers, addresses have digits
+        
+        if len(clean_text) > 5 and not is_admin and not order_intent and not has_digits:
             # Keywords that indicate relevant topics
             RELEVANT_KEYWORDS = {
                 # Products
@@ -159,7 +168,10 @@ async def supervisor_agent_node(state: AgentState):
                 # Greetings (allowed)
                 'hello', 'hi', 'hey', 'good morning', 'good afternoon', 'thanks', 'thank',
                 # Questions about the bot
-                'who are you', 'what can you do', 'how do', 'awelewa', 'ashandy'
+                'who are you', 'what can you do', 'how do', 'awelewa', 'ashandy',
+                # Delivery-related (names, addresses often don't have keywords)
+                'my name', 'name is', 'deliver to', 'send to', 'lekki', 'lagos', 'ibadan',
+                'abuja', 'nigeria', 'street', 'road', 'estate', 'close'
             }
             
             # Check if message contains any relevant keywords
