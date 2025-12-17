@@ -2,7 +2,9 @@
 Product Tools: Search and stock check tools using MCP architecture.
 """
 from langchain.tools import tool
+from sqlalchemy import text
 from app.services.mcp_service import mcp_service
+from app.services.db_service import AsyncSessionLocal
 import logging
 
 logger = logging.getLogger(__name__)

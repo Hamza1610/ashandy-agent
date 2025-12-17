@@ -153,9 +153,6 @@ async def receive_whatsapp_webhook(request: Request, payload: WhatsAppWebhookPay
             "last_user_message": user_message_content,
             # Reset task execution state for fresh processing  
             "task_statuses": {},  # Prevent loading stale failed statuses
-            "plan": [], # Fresh plan for new message
-            # Reset task execution state for fresh processing
-            "task_statuses": {},  # Prevent loading stale failed statuses
             "plan": []  # Fresh plan for new message
         }
         

@@ -108,7 +108,7 @@ async def cart_abandonment_followup_job():
                 )
                 
                 try:
-                    await meta_service.send_whatsapp_message(user_id, message)
+                    await meta_service.send_whatsapp_text(user_id, message)
                     
                     # Mark as reminded
                     await session.execute(text("""
