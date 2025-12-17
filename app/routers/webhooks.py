@@ -1,7 +1,7 @@
 """
 Webhooks Router: Handles incoming messages from WhatsApp, Instagram, and Paystack.
 """
-from fastapi import APIRouter, Request, HTTPException, Header, Form
+from fastapi import APIRouter, Request, HTTPException, Header, Form, Response
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.utils.config import settings
@@ -198,39 +198,42 @@ async def receive_whatsapp_webhook(request: Request, payload: WhatsAppWebhookPay
 
 
 @router.post("/twilio/whatsapp")
-async def receive_twilio_webhook(
-    From: str = Form(...),
-    Body: str = Form(""),
-    NumMedia: int = Form(0),
-    MediaUrl0: str = Form(None),
-    MediaContentType0: str = Form(None)
-):
-    """Process incoming WhatsApp messages via Twilio."""
+async def receive_twilio_webhook(request: Request):
+    """
+    Process incoming WhatsApp messages via Twilio.
+    - Uses request.form() for standard Twilio parsing.
+    - Supports Image Analysis (Parity with Meta webhook).
+    - Returns TwiML XML response.
+    """
     from app.graphs.main_graph import app as agent_app
     from langchain_core.messages import HumanMessage
     
     try:
-        from_number = From
-        body = Body
-        num_media = int(NumMedia)
+        # 1. Parse Form Data
+        form_data = await request.form()
+        from_number = form_data.get("From", "")
+        body = form_data.get("Body", "")
+        num_media = int(form_data.get("NumMedia", 0))
         
-        # Normalize user_id
+        # Normalize user_id (Remove 'whatsapp:' prefix)
         user_id = from_number.replace("whatsapp:", "") if from_number.startswith("whatsapp:") else from_number
         
         image_url = None
         user_message_content = body
         visual_analysis = None
         
-        # Handle Images
+        # 2. Handle Images (Parity with Meta Logic)
         if num_media > 0:
-            media_type = MediaContentType0 or ""
-            if "image" in media_type:
-                image_url = MediaUrl0
-                
-                # Use User's caption if available, else body
-                # Twilio doesn't always separate caption clearly, often in Body
-                
-                # PRE-ANALYZE IMAGE (Parity with Meta logic)
+            # Twilio sends MediaUrl0, MediaUrl1, ...
+            # We take the first image found
+            for i in range(num_media):
+                content_type = form_data.get(f"MediaContentType{i}", "")
+                if "image" in content_type:
+                    image_url = form_data.get(f"MediaUrl{i}")
+                    break
+            
+            if image_url:
+                # PRE-ANALYZE IMAGE for product detection
                 try:
                     from app.tools.visual_tools import detect_product_from_image
                     logger.info(f"Pre-analyzing Twilio image: {image_url[:50]}...")
@@ -249,7 +252,7 @@ async def receive_twilio_webhook(
 
         logger.info(f"Twilio Webhook: User {user_id} says '{user_message_content[:50]}...'")
         
-        # Construct Message
+        # 3. Construct Message
         human_msg = HumanMessage(content=user_message_content)
         if image_url:
             human_msg.additional_kwargs["image_url"] = image_url
@@ -270,6 +273,7 @@ async def receive_twilio_webhook(
             "plan": []
         }
         
+        # 4. Invoke Agent
         final_state = await agent_app.ainvoke(
             input_state,
             config={
@@ -289,7 +293,7 @@ async def receive_twilio_webhook(
                 last_reply = msg.content.strip()
                 break
                 
-        # Save memory
+        # 5. Save memory
         if user_message_content and last_reply:
             try:
                 from app.tools.vector_tools import save_user_interaction
@@ -301,20 +305,29 @@ async def receive_twilio_webhook(
             except Exception as e:
                 logger.error(f"Memory save error: {e}")
                 
-        # === TWILIO RESPONSE ===
+        # 6. Return TwiML Response
+        # We assume agent latency < 15s. If last_reply exists, we send it.
+        # If no reply, we send empty response (200 OK).
+        
+        twiml_content = ""
         if last_reply:
-            try:
-                from app.services.twilio_service import twilio_service
-                logger.info(f"Sending Twilio reply to {user_id}: {last_reply[:50]}...")
-                await twilio_service.send_whatsapp_text(user_id, last_reply)
-            except Exception as e:
-                logger.error(f"Failed to send Twilio reply: {e}")
-                
-        return {"status": "processed", "channel": "whatsapp-twilio", "user_id": user_id}
+            # Escape XML special characters if needed, but simple string usually fine.
+            # Ideally use a library, but f-string is lightweight for this.
+            clean_reply = last_reply.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            twiml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Message>{clean_reply}</Message>
+</Response>"""
+        else:
+            twiml_content = """<?xml version="1.0" encoding="UTF-8"?>
+<Response></Response>"""
+
+        return Response(content=twiml_content, media_type="application/xml")
 
     except Exception as e:
         logger.error(f"Twilio processing error: {e}")
-        return {"status": "error", "message": str(e)}
+        # Return empty TwiML on error to satisfy Twilio
+        return Response(content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>', media_type="application/xml")
 
 
 @router.get("/instagram")
