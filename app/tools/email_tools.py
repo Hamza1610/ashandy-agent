@@ -1,5 +1,5 @@
 """
-Email collection tool: Asks customer for email before payment.
+Email Tools: Request customer email for payment processing.
 """
 from langchain.tools import tool
 import logging
@@ -9,20 +9,6 @@ logger = logging.getLogger(__name__)
 
 @tool
 async def request_customer_email() -> str:
-    """
-    Request customer's email address for payment processing.
-    
-    Call this tool BEFORE requesting payment link when email is not available.
-    The customer will be prompted to provide their email.
-    
-    Returns:
-        Message asking customer for email
-        
-    Example:
-        >>> await request_customer_email.ainvoke({})
-        "Please provide your email address for payment"
-    """
-    print(f"\n>>> TOOL: request_customer_email called")
-    logger.info("Requesting customer email for payment")
-    
+    """Request customer email before payment link generation."""
+    logger.info("Requesting customer email")
     return "Please provide your email address to complete your order and receive payment confirmation."

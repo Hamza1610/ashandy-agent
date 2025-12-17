@@ -1,6 +1,5 @@
 """
-Simple API test endpoint to verify the new graph works.
-Add this to test the graph through the running server.
+Test Graph Router: API endpoint to test LangGraph workflow without WhatsApp/Instagram.
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -30,48 +29,88 @@ class TestMessageResponse(BaseModel):
 
 @router.post("/message", response_model=TestMessageResponse)
 async def test_graph_message(request: TestMessageRequest):
-    """
-    Test the new LangGraph workflow without needing WhatsApp/Instagram.
-    
-    Usage:
-        POST http://localhost:8000/test/message
-        {
-            "message": "Do you have lipstick?",
-            "user_id": "test_user_123",
-            "platform": "whatsapp"
-        }
-    """
+    """Test graph workflow. POST {"message": "Do you have lipstick?", "user_id": "test_123"}"""
     try:
         from app.graphs.main_graph import app as graph_app
-        from langchain_core.messages import HumanMessage
+        from langchain_core.messages import HumanMessage, AIMessage
+        from app.services.db_service import AsyncSessionLocal
+        from sqlalchemy import text
         
-        logger.info(f"Test request: {request.message}")
+        logger.info(f"Test: {request.message}")
         
-        # Create state
+        # Load conversation history from database
+        messages = []
+        try:
+            async with AsyncSessionLocal() as session:
+                query = text("""
+                    SELECT role, content FROM message_logs 
+                    WHERE user_id = :user_id 
+                    ORDER BY created_at DESC LIMIT 10
+                """)
+                result = await session.execute(query, {"user_id": request.user_id})
+                rows = result.fetchall()
+                
+                # Reverse to get chronological order (oldest first)
+                for row in reversed(rows):
+                    role, content = row
+                    if role == "user":
+                        messages.append(HumanMessage(content=content))
+                    elif role == "assistant":
+                        messages.append(AIMessage(content=content))
+        except Exception as e:
+            logger.warning(f"Could not load history: {e}")
+        
+        # Add current message
+        messages.append(HumanMessage(content=request.message))
+        
+        # Try to get previous state from checkpointer to preserve order_intent
+        previous_order_intent = False
+        previous_order = None
+        previous_order_data = None
+        try:
+            from app.graphs.main_graph import app as graph_check
+            config = {"configurable": {"thread_id": request.user_id}}
+            state_snapshot = graph_check.get_state(config)
+            if state_snapshot and state_snapshot.values:
+                previous_order_intent = state_snapshot.values.get("order_intent", False)
+                previous_order = state_snapshot.values.get("order")
+                previous_order_data = state_snapshot.values.get("order_data")
+                logger.info(f"Loaded previous state: order_intent={previous_order_intent}, order={previous_order}")
+        except Exception as e:
+            logger.debug(f"No previous state: {e}")
+        
         input_state = {
-            "messages": [HumanMessage(content=request.message)],
+            "messages": messages,
             "user_id": request.user_id,
             "session_id": f"test_{request.user_id}",
-            "platform": request.platform,
+            "platform": "test",
             "is_admin": request.is_admin,
             "blocked": False,
-            "order_intent": False,
-            "requires_handoff": False
+            "order_intent": previous_order_intent,  # Preserve from previous state!
+            "order": previous_order,  # Preserve order data
+            "order_data": previous_order_data,  # Preserve order_data for delivery details
+            "requires_handoff": False,
+            # Initialize empty structures to prevent KeyError in new nodes
+            "task_statuses": {},
+            "worker_outputs": {},
+            "retry_counts": {}
         }
         
-        # Invoke graph
-        result = await graph_app.ainvoke(
-            input_state,
-            config={"configurable": {"thread_id": request.user_id}}
-        )
+        result = await graph_app.ainvoke(input_state, config={"configurable": {"thread_id": request.user_id}})
         
-        # Extract response
         messages = result.get("messages", [])
         ai_response = None
         
-        if len(messages) > 1:
-            last_msg = messages[-1]
-            ai_response = last_msg.content if hasattr(last_msg, 'content') else str(last_msg)
+        for msg in reversed(messages):
+            if hasattr(msg, "type") and msg.type == "ai":
+                ai_response = msg.content
+                break
+            if msg.__class__.__name__ == "AIMessage":
+                ai_response = msg.content
+                break
+        
+        if not ai_response:
+            ai_response = result.get("worker_result")
         
         return TestMessageResponse(
             status="success",
@@ -85,31 +124,18 @@ async def test_graph_message(request: TestMessageRequest):
     except Exception as e:
         logger.error(f"Test failed: {e}", exc_info=True)
         return TestMessageResponse(
-            status="error",
-            user_message=request.message,
-            ai_response=None,
-            query_type=None,
-            order_intent=None,
-            messages_count=0,
-            error=str(e)
+            status="error", user_message=request.message, ai_response=None,
+            query_type=None, order_intent=None, messages_count=0, error=str(e)
         )
 
 
 @router.get("/graph-info")
 async def get_graph_info():
-    """Get information about the graph structure."""
+    """Get graph structure information."""
     try:
         from app.graphs.main_graph import app as graph_app
-        
         graph = graph_app.get_graph()
         nodes = list(graph.nodes.keys())
-        
-        return {
-            "status": "ok",
-            "graph_type": "LangGraph StateGraph",
-            "node_count": len(nodes),
-            "nodes": sorted(nodes),
-            "message": "✅ New clean LangGraph is active!"
-        }
+        return {"status": "ok", "graph_type": "LangGraph StateGraph", "node_count": len(nodes), "nodes": sorted(nodes)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

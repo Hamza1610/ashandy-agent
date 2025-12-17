@@ -1,75 +1,72 @@
 """
-Payment tools for Paystack integration.
-Renamed from paystack_tools.py for consistency.
+Payment Tools: Paystack integration for payment link generation and verification.
 """
-from langchain.tools import tool
-from app.services.paystack_service import paystack_service
+from langchain_core.tools import tool
+from app.services.mcp_service import mcp_service
 import logging
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_EMAIL = "ashandyawelewa@gmail.com"
+
 
 @tool("generate_payment_link_tool")
-async def generate_payment_link(email: str, amount: float, reference: str) -> str:
+async def generate_payment_link(amount: float, reference: str, email: str = None, delivery_details: dict = None) -> str:
     """
-    Generate a Paystack payment link for a customer order.
+    Generate a Paystack payment link. Requires delivery_details for delivery orders.
     
     Args:
-        email: Customer's email address
-        amount: Order amount in Naira (e.g., 5000.00)
-        reference: Unique order reference ID
-        
-    Returns:
-        Payment link URL or error message
+        amount: Total amount in Naira
+        reference: Unique reference/user ID
+        email: Customer email (defaults to ashandyawelewa@gmail.com)
+        delivery_details: Dict with name, phone, address
     """
-    try:
-        logger.info(f"Generating payment link: amount={amount}, ref={reference}")
+    # Validate delivery details
+    if delivery_details:
+        missing = []
+        if not delivery_details.get('name'):
+            missing.append('full name')
+        if not delivery_details.get('phone'):
+            missing.append('phone number')
+        if not delivery_details.get('address'):
+            missing.append('delivery address')
         
-        # Convert to kobo (Paystack requirement)
-        amount_kobo = int(amount * 100)
+        if missing:
+            return f"❌ Cannot generate payment. Missing: {', '.join(missing)}.\n\nPlease provide: Full Name, Phone, Address."
+    
+    final_email = email if (email and '@' in email) else DEFAULT_EMAIL
+    logger.info(f"Generating payment link: amount={amount}, ref={reference}")
+    
+    result = await mcp_service.call_tool("payment", "initialize_payment", {
+        "email": final_email,
+        "amount_ngn": amount,
+        "user_id": reference
+    })
+    
+    if result.startswith("SUCCESS"):
+        parts = result.split("|")
+        payment_url = parts[1]
+        actual_ref = parts[2] if len(parts) > 2 else reference
         
-        response = paystack_service.initialize_transaction(
-            email=email,
-            amount=amount_kobo,
-            reference=reference
-        )
+        delivery_msg = ""
+        if delivery_details:
+            delivery_msg = f"\n\n📦 *Delivery To:*\n{delivery_details.get('name', 'N/A')}\n{delivery_details.get('address', 'N/A')}\n📞 {delivery_details.get('phone', 'N/A')}"
         
-        if response and response.get('status'):
-            payment_url = response['data']['authorization_url']
-            return f"Payment link generated successfully: {payment_url}\n\nAmount: ₦{amount:,.2f}\nPlease click the link to complete your payment."
-        
-        logger.error(f"Paystack initialization failed: {response}")
-        return "Failed to generate payment link. Please try again or contact support."
-        
-    except Exception as e:
-        logger.error(f"Payment link generation error: {e}")
-        return f"Error creating payment link: {str(e)}"
+        return f"""✅ Payment link ready!
+
+💰 *Amount:* ₦{amount:,.2f}
+🧾 *Reference:* {actual_ref}
+📧 *Receipt to:* {final_email}{delivery_msg}
+
+🔗 *Click to pay:* {payment_url}
+
+Once paid, we'll confirm and process your delivery!"""
+    
+    return f"Failed to generate payment link: {result}"
 
 
 @tool("verify_payment_tool")
 async def verify_payment(reference: str) -> str:
-    """
-    Verify a payment transaction status.
-    
-    Args:
-        reference: The payment reference ID to verify
-        
-    Returns:
-        Payment verification status
-    """
-    try:
-        logger.info(f"Verifying payment: {reference}")
-        
-        response = paystack_service.verify_transaction(reference)
-        
-        if response and response.get('status'):
-            status = response['data']['status']
-            amount = response['data']['amount'] / 100  # Convert from kobo
-            
-            return f"Payment Status: {status}\nAmount: ₦{amount:,.2f}\nReference: {reference}"
-        
-        return f"Could not verify payment for reference: {reference}"
-        
-    except Exception as e:
-        logger.error(f"Payment verification error: {e}")
-        return f"Payment verification failed: {str(e)}"
+    """Verify a payment transaction status."""
+    logger.info(f"Verifying payment: {reference}")
+    return await mcp_service.call_tool("payment", "verify_payment", {"reference": reference})

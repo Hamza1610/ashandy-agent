@@ -1,0 +1,60 @@
+services:
+  # === Database Service ===
+  postgres:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hamza}
+      POSTGRES_DB: ${POSTGRES_DB:-ashandy_agent}
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ashandy_agent}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # === Cache Service ===
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: redis-server --appendonly yes # Enable data persistence
+    volumes:
+      - redis_data_prod:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # === Application Service ===
+  app:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      # === NETWORK FIX ===
+      # We construct the URL to point to the internal 'postgres' container, ignoring 'localhost' from the host .env
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-hamza}@postgres/${POSTGRES_DB:-ashandy_agent}
+      # We construct the URL to point to the internal 'redis' container
+      - REDIS_URL=redis://redis:6379/0
+      # Pass other env vars from host .env file
+    env_file:
+      - ../.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      # Mount uploads directory for persistence
+      - ../uploads:/app/uploads
+      # DO NOT mount app code in production (use baked image)
+
+volumes:
+  postgres_data_prod:
+  redis_data_prod:

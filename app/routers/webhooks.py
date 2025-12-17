@@ -1,49 +1,62 @@
-from fastapi import APIRouter, Request, HTTPException, status
+"""
+Webhooks Router: Handles incoming messages from WhatsApp, Instagram, and Paystack.
+"""
+from fastapi import APIRouter, Request, HTTPException, Header, Form, Response
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from app.utils.config import settings
 from app.models.webhook_schemas import WhatsAppWebhookPayload, InstagramWebhookPayload
 import logging
+import hmac
+import hashlib
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# WhatsApp Webhook
+# Rate limiter for webhooks (60 messages/minute per IP)
+limiter = Limiter(key_func=get_remote_address)
+
+
+def verify_paystack_signature(payload: bytes, signature: str) -> bool:
+    """Verify Paystack webhook signature using HMAC SHA512."""
+    if not settings.PAYSTACK_SECRET_KEY:
+        logger.warning("PAYSTACK_SECRET_KEY not configured, skipping signature verification")
+        return True  # Allow in dev mode
+    
+    expected = hmac.new(
+        settings.PAYSTACK_SECRET_KEY.encode(),
+        payload,
+        hashlib.sha512
+    ).hexdigest()
+    
+    return hmac.compare_digest(expected, signature)
+
+
 @router.get("/whatsapp")
 async def verify_whatsapp_webhook(request: Request):
-    """
-    Verification challenge for Meta WhatsApp Cloud API.
-    """
+    """Verification challenge for Meta WhatsApp Cloud API."""
     mode = request.query_params.get("hub.mode")
     token = request.query_params.get("hub.verify_token")
     challenge = request.query_params.get("hub.challenge")
 
-    if mode and token:
-        if mode == "subscribe" and token == settings.META_VERIFY_TOKEN:
-            logger.info("WhatsApp Webhook Verified!")
-            return int(challenge)
-        else:
-            raise HTTPException(status_code=403, detail="Verification failed")
-    
+    if mode == "subscribe" and token == settings.META_VERIFY_TOKEN:
+        logger.info("WhatsApp Webhook Verified!")
+        return int(challenge)
+    elif mode and token:
+        raise HTTPException(status_code=403, detail="Verification failed")
     return {"status": "ok"}
 
+
 @router.post("/whatsapp")
-async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
-    """
-    Receive WhatsApp messages.
-    """
-    print("\n" + "="*100)
-    print(">>> WEBHOOK FUNCTION CALLED - NEW CODE VERSION <<<")
-    print("="*100 + "\n")
-    
+@limiter.limit("60/minute")
+async def receive_whatsapp_webhook(request: Request, payload: WhatsAppWebhookPayload):
+    """Process incoming WhatsApp messages."""
     from app.graphs.main_graph import app as agent_app
     from langchain_core.messages import HumanMessage
     from app.services.meta_service import meta_service
 
-    # payload is already parsed by Pydantic
-    logger.info(f"Received WhatsApp webhook.")
-    
     try:
-        # Access attributes directly, respecting Pydantic model structure
-        if not payload.entry:
+        if not payload.entry or not payload.entry[0].changes:
             return {"status": "no_entry"}
 
         entry = payload.entry[0]
@@ -52,13 +65,16 @@ async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
 
         changes = entry.changes[0]
         value = changes.value
+        
+        if not value:
+             return {"status": "no_value"}
+             
         messages = value.messages
-
         if not messages:
             return {"status": "no_messages"}
 
         message = messages[0]
-        from_phone = message.get("from") # The user's phone number
+        from_phone = message.from_ # The user's phone number
         
         # Extract message content
         content = ""
@@ -66,26 +82,47 @@ async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
         
         user_message_content = ""
         image_url = None
+        visual_analysis = None  # Pre-analyzed product info
+        
         if msg_type == "text":
-            text_obj = message.get("text", {})
-            user_message_content = text_obj.get("body", "")
+            text_obj = message.text
+            user_message_content = text_obj.body if text_obj else ""
         elif msg_type == "image":
             # Handle Image
-            img_obj = message.get("image", {})
-            media_id = img_obj.get("id")
-            caption = img_obj.get("caption", "")
-            user_message_content = caption # Use caption as text context
+            img_obj = message.image
+            media_id = img_obj.id if img_obj else None
+            caption = img_obj.caption if img_obj else ""
+            user_message_content = caption or ""
             
             # Resolve URL
             fetched_url = await meta_service.get_media_url(media_id)
             if fetched_url:
                 image_url = fetched_url
+                
+                # PRE-ANALYZE IMAGE for product detection
+                try:
+                    from app.tools.visual_tools import detect_product_from_image
+                    logger.info(f"Pre-analyzing image: {image_url[:50]}...")
+                    analysis = await detect_product_from_image.ainvoke(image_url)
+                    if analysis and not analysis.get("error"):
+                        visual_analysis = analysis
+                        # Extract key info for agent
+                        detected_text = analysis.get("detected_text", "")
+                        product_type = analysis.get("product_type", "")
+                        matched = analysis.get("matched_products", "")
+                        
+                        # Enrich user message with context
+                        if detected_text or matched:
+                            user_message_content += f" [IMAGE DETECTED: {detected_text or product_type}. Matches: {matched}]"
+                            logger.info(f"Image pre-analysis: {detected_text}, matched: {matched}")
+                except Exception as e:
+                    logger.error(f"Image pre-analysis failed: {e}")
             else:
                 logger.warning(f"Could not resolve URL for media {media_id}")
         else:
             logger.warning(f"⚠️ Cannot extract message. Type: {msg_type}, Has text: {hasattr(message, 'text')}, Has image: {hasattr(message, 'image')}")
             
-        logger.info(f"📝 Final user_message_content: '{user_message_content}' (length: {len(user_message_content)})")
+        logger.info(f"📝 Final user_message_content: '{user_message_content[:100]}' (length: {len(user_message_content)})")
             
         # Construct Input State
         # We need to pass the image URL in a way the Router understands.
@@ -101,11 +138,8 @@ async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
         
         human_msg = HumanMessage(content=user_message_content)
         if image_url:
-             human_msg.additional_kwargs["image_url"] = image_url
+            human_msg.additional_kwargs["image_url"] = image_url
         
-        logger.info(f"Webhook: HumanMessage created. Content type: {type(human_msg.content).__name__}, Content: '{str(human_msg.content)[:100] if human_msg.content else 'EMPTY'}'")
-        
-        # Construct Input State with ALL required fields
         input_state = {
             "messages": [human_msg],
             "user_id": from_phone,
@@ -116,164 +150,280 @@ async def receive_whatsapp_webhook(payload: WhatsAppWebhookPayload):
             "order_intent": False,
             "requires_handoff": False,
             "query_type": "text",
-            "last_user_message": user_message_content
+            "last_user_message": user_message_content,
+            # Reset task execution state for fresh processing  
+            "task_statuses": {},  # Prevent loading stale failed statuses
+            "plan": []  # Fresh plan for new message
         }
         
-        # Invoke Graph
-        print("\n>>> ABOUT TO INVOKE GRAPH <<<")
-        print(f">>> User: {from_phone}")
-        print(f">>> Input state keys: {list(input_state.keys())}")
+        final_state = await agent_app.ainvoke(
+            input_state, 
+            config={
+                "configurable": {"thread_id": from_phone},
+                "recursion_limit":100 # Increased from default 25 to handle review retry loops
+            }
+        )
         
-        final_state = await agent_app.ainvoke(input_state, config={"configurable": {"thread_id": from_phone}})
-        
-        print("\n>>> GRAPH COMPLETED <<<")
-        print(f">>> Final state keys: {list(final_state.keys())}")
-        
-        send_result = final_state.get("send_result")
         final_messages = final_state.get("messages", [])
-        
-        print(f"\n>>> Messages in final_state: {len(final_messages)}")
-        for i, msg in enumerate(final_messages):
-            msg_type = type(msg).__name__
-            has_content = hasattr(msg, 'content')
-            content_preview = str(msg.content)[:50] if (has_content and msg.content) else "EMPTY"
-            print(f">>>   [{i}] {msg_type} - {content_preview}")
-        
-        # Extract AI response - look for last AIMessage with actual text content
         last_reply = None
         
-        # Search backwards through messages for last AI response with content
         for msg in reversed(final_messages):
             msg_type = type(msg).__name__
-            logger.info(f"🔍 Checking message type={msg_type}")
-            
-            # Skip HumanMessage
-            if msg_type == "HumanMessage":
-                logger.info(f"   Skipping HumanMessage")
+            if msg_type in ["HumanMessage", "ToolMessage"]:
                 continue
-                
-            # Skip ToolMessage (these are tool results, not final responses)
-            if msg_type == "ToolMessage":
-                logger.info(f"   Skipping ToolMessage")
-                continue
-            
-            # Try to get content from this message
-            content = None
-            if hasattr(msg, 'content') and msg.content:
-                content = msg.content
-                logger.info(f"   Has content attribute: '{str(content)[:50]}'")
-            elif isinstance(msg, dict) and msg.get('content'):
-                content = msg['content']
-                logger.info(f"   Dict with content: '{content[:50]}'")
-            elif isinstance(msg, str):
-                content = msg
-                logger.info(f"   Is string: '{content[:50]}'")
-            else:
-                logger.info(f"   No content found")
-                
-            # If we found content, use it
-            if content and isinstance(content, str) and content.strip():
-                last_reply = content.strip()
-                logger.info(f"✅ Found AI response: '{last_reply[:100]}'")
+            if hasattr(msg, 'content') and msg.content and isinstance(msg.content, str):
+                last_reply = msg.content.strip()
                 break
-            else:
-                logger.info(f"   Message has no text content (might have tool_calls)")
-        
-        if not last_reply:
-            logger.warning(f"⚠️ No AI text response found in {len(final_messages)} messages")
-        
-        logger.info(f"📤 Final AI Response: '{last_reply[:100] if last_reply else 'NONE'}'")
-        
-        # 🔥 FALLBACK: Save memory directly in webhook
-        try:
-            if user_message_content and last_reply:
+
+        # Save memory
+        if user_message_content and last_reply:
+            try:
                 from app.tools.vector_tools import save_user_interaction
-                logger.info(f"💾 Webhook: Saving memory for {from_phone}")
-                logger.info(f"   User: '{user_message_content[:50]}'")
-                logger.info(f"   AI: '{last_reply[:50]}'")
-                await save_user_interaction(
-                    user_id=from_phone,
-                    user_msg=user_message_content,
-                    ai_msg=last_reply
-                )
-                logger.info(f"✅ Memory saved!")
-            else:
-                logger.warning(f"⚠️ Memory skip: user={bool(user_message_content)}, ai={bool(last_reply)}")
-        except Exception as mem_err:
-            logger.error(f"❌ Memory save error: {mem_err}")
+                await save_user_interaction.ainvoke({
+                    "user_id": from_phone,
+                    "user_msg": user_message_content,
+                    "ai_msg": last_reply
+                })
+            except Exception as e:
+                logger.error(f"Memory save error: {e}")
         
-        return {
-            "status": "processed",
-            "channel": "whatsapp",
-            "user_id": from_phone,
-            "send_result": send_result,
-            "last_reply": last_reply
-        }
+        return {"status": "processed", "channel": "whatsapp", "user_id": from_phone, "last_reply": last_reply}
             
     except Exception as e:
         logger.error(f"WhatsApp processing error: {e}")
         return {"status": "error", "message": str(e)}
 
-# Instagram Webhook
+
+@router.post("/twilio/whatsapp")
+async def receive_twilio_webhook(request: Request):
+    """
+    Process incoming WhatsApp messages via Twilio.
+    - Uses request.form() for standard Twilio parsing.
+    - Supports Image Analysis (Parity with Meta webhook).
+    - Returns TwiML XML response.
+    """
+    from app.graphs.main_graph import app as agent_app
+    from langchain_core.messages import HumanMessage
+    
+    try:
+        # 1. Parse Form Data
+        form_data = await request.form()
+        from_number = form_data.get("From", "")
+        body = form_data.get("Body", "")
+        num_media = int(form_data.get("NumMedia", 0))
+        
+        # Normalize user_id (Remove 'whatsapp:' prefix)
+        user_id = from_number.replace("whatsapp:", "") if from_number.startswith("whatsapp:") else from_number
+        
+        image_url = None
+        user_message_content = body
+        visual_analysis = None
+        
+        # 2. Handle Images (Parity with Meta Logic)
+        if num_media > 0:
+            # Twilio sends MediaUrl0, MediaUrl1, ...
+            # We take the first image found
+            for i in range(num_media):
+                content_type = form_data.get(f"MediaContentType{i}", "")
+                if "image" in content_type:
+                    image_url = form_data.get(f"MediaUrl{i}")
+                    break
+            
+            if image_url:
+                # PRE-ANALYZE IMAGE for product detection
+                try:
+                    from app.tools.visual_tools import detect_product_from_image
+                    logger.info(f"Pre-analyzing Twilio image: {image_url[:50]}...")
+                    analysis = await detect_product_from_image.ainvoke(image_url)
+                    if analysis and not analysis.get("error"):
+                        visual_analysis = analysis
+                        detected_text = analysis.get("detected_text", "")
+                        product_type = analysis.get("product_type", "")
+                        matched = analysis.get("matched_products", "")
+                        
+                        if detected_text or matched:
+                            user_message_content += f" [IMAGE DETECTED: {detected_text or product_type}. Matches: {matched}]"
+                            logger.info(f"Image pre-analysis: {detected_text}, matched: {matched}")
+                except Exception as e:
+                    logger.error(f"Image pre-analysis failed: {e}")
+
+        logger.info(f"Twilio Webhook: User {user_id} says '{user_message_content[:50]}...'")
+        
+        # 3. Construct Message
+        human_msg = HumanMessage(content=user_message_content)
+        if image_url:
+            human_msg.additional_kwargs["image_url"] = image_url
+            
+        input_state = {
+            "messages": [human_msg],
+            "user_id": user_id,
+            "session_id": user_id,
+            "platform": "whatsapp",
+            "provider": "twilio",
+            "is_admin": False,
+            "blocked": False,
+            "order_intent": False,
+            "requires_handoff": False,
+            "query_type": "text",
+            "last_user_message": user_message_content,
+            "task_statuses": {},
+            "plan": []
+        }
+        
+        # 4. Invoke Agent
+        final_state = await agent_app.ainvoke(
+            input_state,
+            config={
+                "configurable": {"thread_id": user_id},
+                "recursion_limit": 100
+            }
+        )
+        
+        final_messages = final_state.get("messages", [])
+        last_reply = None
+        
+        for msg in reversed(final_messages):
+            msg_type = type(msg).__name__
+            if msg_type in ["HumanMessage", "ToolMessage"]:
+                continue
+            if hasattr(msg, 'content') and msg.content and isinstance(msg.content, str):
+                last_reply = msg.content.strip()
+                break
+                
+        # 5. Save memory
+        if user_message_content and last_reply:
+            try:
+                from app.tools.vector_tools import save_user_interaction
+                await save_user_interaction.ainvoke({
+                    "user_id": user_id,
+                    "user_msg": user_message_content,
+                    "ai_msg": last_reply
+                })
+            except Exception as e:
+                logger.error(f"Memory save error: {e}")
+                
+        # 6. Return TwiML Response
+        # We assume agent latency < 15s. If last_reply exists, we send it.
+        # If no reply, we send empty response (200 OK).
+        
+        twiml_content = ""
+        if last_reply:
+            # Escape XML special characters if needed, but simple string usually fine.
+            # Ideally use a library, but f-string is lightweight for this.
+            clean_reply = last_reply.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            twiml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Message>{clean_reply}</Message>
+</Response>"""
+        else:
+            twiml_content = """<?xml version="1.0" encoding="UTF-8"?>
+<Response></Response>"""
+
+        return Response(content=twiml_content, media_type="application/xml")
+
+    except Exception as e:
+        logger.error(f"Twilio processing error: {e}")
+        # Return empty TwiML on error to satisfy Twilio
+        return Response(content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>', media_type="application/xml")
+
+
 @router.get("/instagram")
 async def verify_instagram_webhook(request: Request):
-    """
-    Verification challenge for Instagram Graph API.
-    """
+    """Verification challenge for Instagram Graph API."""
     mode = request.query_params.get("hub.mode")
     token = request.query_params.get("hub.verify_token")
     challenge = request.query_params.get("hub.challenge")
 
-    if mode and token:
-        if mode == "subscribe" and token == settings.META_VERIFY_TOKEN: # Assuming same verify token
-             return int(challenge)
-        else:
-             raise HTTPException(status_code=403, detail="Verification failed")
-    
+    if mode == "subscribe" and token == settings.META_VERIFY_TOKEN:
+        return int(challenge)
+    elif mode and token:
+        raise HTTPException(status_code=403, detail="Verification failed")
     return {"status": "ok"}
+
 
 @router.post("/instagram")
 async def receive_instagram_webhook(payload: InstagramWebhookPayload):
+    """Process incoming Instagram messages including story/post replies."""
     from app.graphs.main_graph import app as graph_app
     from langchain_core.messages import HumanMessage
     from app.services.meta_service import meta_service
 
     try:
-        # logger.info(f"Received Instagram webhook: {payload}")
-        
-        if not payload.entry:
-             return {"status": "no_entry"}
-             
-        entry = payload.entry[0]
-        if not entry.messaging:
-             return {"status": "ignored_event_type"}
+        if not payload.entry or not payload.entry[0].messaging:
+            return {"status": "no_entry"}
             
-        event = entry.messaging[0]
+        event = payload.entry[0].messaging[0]
         sender_id = event.sender["id"]
         
         if not event.message:
-             return {"status": "ignored_non_message"}
-             
-        message = event.message
-        text_content = message.text or ""
+            return {"status": "ignored_non_message"}
         
-        # Check for attachments (images)
+        # Skip echo messages (our own responses)
+        if getattr(event.message, 'is_echo', False):
+            return {"status": "ignored_echo"}
+              
+        text_content = event.message.text or ""
+        
+        # Handle image attachments
         image_url = None
-        if message.attachments:
-            for att in message.attachments:
+        if event.message.attachments:
+            for att in event.message.attachments:
                 if att.get("type") == "image":
-                    # IG Attachments usually provide a payload.url directly
-                    payload_url = att.get("payload", {}).get("url")
-                    if payload_url:
-                        image_url = payload_url
-                        break
+                    image_url = att.get("payload", {}).get("url")
+                    break
         
-        # Construct Message
-        human_msg = HumanMessage(content=text_content)
+        # === STORY/POST REPLY CONTEXT ===
+        story_post_context = ""
+        if event.message.reply_to:
+            reply_info = event.message.reply_to
+            
+            # Story reply
+            if reply_info.story:
+                story_url = reply_info.story.get("url")
+                story_id = reply_info.story.get("id")
+                logger.info(f"Instagram story reply detected: {story_id}")
+                
+                # Fetch story details and analyze
+                if story_id:
+                    media_data = await meta_service.get_instagram_media(story_id)
+                    if media_data:
+                        caption = media_data.get("caption", "")
+                        media_url = media_data.get("media_url", story_url)
+                        
+                        # Analyze for product details
+                        from app.tools.instagram_tools import analyze_instagram_post
+                        analysis = await analyze_instagram_post(media_url, caption)
+                        if analysis and analysis.get("products"):
+                            products = analysis.get("products", [])
+                            story_post_context = f"\n[STORY CONTEXT: Customer replied to story about: {caption[:100]}. Products shown: {products}]"
+                            logger.info(f"Story analysis: {products}")
+            
+            # Post reply
+            elif reply_info.post:
+                post_url = reply_info.post.get("url")
+                post_id = reply_info.post.get("id")
+                logger.info(f"Instagram post reply detected: {post_id}")
+                
+                if post_id:
+                    media_data = await meta_service.get_instagram_media(post_id)
+                    if media_data:
+                        caption = media_data.get("caption", "")
+                        media_url = media_data.get("media_url", post_url)
+                        
+                        from app.tools.instagram_tools import analyze_instagram_post
+                        analysis = await analyze_instagram_post(media_url, caption)
+                        if analysis and analysis.get("products"):
+                            products = analysis.get("products", [])
+                            story_post_context = f"\n[POST CONTEXT: Customer replied to post about: {caption[:100]}. Products shown: {products}]"
+                            logger.info(f"Post analysis: {products}")
+        
+        # Append context to message for agent
+        enriched_text = text_content + story_post_context
+        
+        human_msg = HumanMessage(content=enriched_text)
         if image_url:
-             human_msg.additional_kwargs["image_url"] = image_url
+            human_msg.additional_kwargs["image_url"] = image_url
         
-        # Construct Input State with ALL required fields
         input_state = {
             "messages": [human_msg],
             "user_id": sender_id,
@@ -287,97 +437,76 @@ async def receive_instagram_webhook(payload: InstagramWebhookPayload):
             "last_user_message": text_content
         }
         
-        # Invoke Graph
-        logger.info(f"Invoking Agent Graph for IG User {sender_id}...")
-        final_state = await graph_app.ainvoke(input_state, config={"configurable": {"thread_id": sender_id}})
+        final_state = await graph_app.ainvoke(
+            input_state, 
+            config={
+                "configurable": {"thread_id": sender_id},
+                "recursion_limit": 50  # Increased from default 25 to handle review retry loops
+            }
+        )
         
-        send_result = final_state.get("send_result")
         final_messages = final_state.get("messages", [])
         last_reply = final_messages[-1].content if final_messages else None
         
-        # 🔥 FALLBACK: Save memory directly in webhook
-        try:
-            if text_content and last_reply:
+        if text_content and last_reply:
+            try:
                 from app.tools.vector_tools import save_user_interaction
-                logger.info(f"💾 Instagram: Saving memory for {sender_id}")
-                await save_user_interaction(
-                    user_id=sender_id,
-                    user_msg=text_content,
-                    ai_msg=last_reply
-                )
-                logger.info(f"✅ Instagram: Memory saved!")
-        except Exception as mem_err:
-            logger.error(f"❌ Instagram: Memory save error: {mem_err}")
+                await save_user_interaction.ainvoke({
+                    "user_id": sender_id,
+                    "user_msg": text_content,
+                    "ai_msg": last_reply
+                })
+            except Exception as e:
+                logger.error(f"Instagram memory error: {e}")
         
-        return {
-            "status": "processed",
-            "channel": "instagram",
-            "user_id": sender_id,
-            "send_result": send_result,
-            "last_reply": last_reply
-        }
+        return {"status": "processed", "channel": "instagram", "user_id": sender_id, "last_reply": last_reply}
 
     except Exception as e:
-        logger.error(f"IG Webhook processing error: {e}")
+        logger.error(f"IG Webhook error: {e}")
         return {"status": "error", "message": str(e)}
 
-# Paystack Webhook
+
 @router.post("/paystack")
 async def receive_paystack_webhook(request: Request):
-    """
-    Handle Paystack Webhooks (e.g., charge.success).
-    """
+    """Handle Paystack payment webhooks with signature verification."""
     from app.services.meta_service import meta_service
-    from app.utils.config import settings
     from app.tools.db_tools import get_order_by_reference
 
     try:
+        # SECURITY: Verify Paystack signature
+        raw_payload = await request.body()
+        signature = request.headers.get("x-paystack-signature", "")
+        
+        if signature and not verify_paystack_signature(raw_payload, signature):
+            logger.warning("Paystack webhook signature verification failed!")
+            raise HTTPException(status_code=401, detail="Invalid signature")
+        
         payload = await request.json()
         event = payload.get("event")
         data = payload.get("data", {})
         
-        logger.info(f"Paystack Webhook Event: {event}")
-        
         if event == "charge.success":
             reference = data.get("reference")
-            amount_kobo = data.get("amount", 0)
-            amount_naira = amount_kobo / 100
+            amount_naira = data.get("amount", 0) / 100
             customer_email = data.get("customer", {}).get("email", "N/A")
             
-            # Notify Admin
             if settings.ADMIN_PHONE_NUMBERS:
                 manager_phone = settings.ADMIN_PHONE_NUMBERS[0]
                 
-                # Fetch full details from DB
                 try:
-                    # Using tool invocation
                     order = await get_order_by_reference.ainvoke(reference)
-                except Exception as db_e:
-                    logger.error(f"Failed to fetch order: {db_e}")
+                except Exception:
                     order = {}
 
                 if not isinstance(order, dict):
-                     # Fallback if tool returns string error
-                     order = {}
+                    order = {}
                 
                 details = order.get("details", {})
                 items = details.get("items", [])
-                subtotal = details.get("subtotal", 0)
-                fee = details.get("delivery_fee", 0)
                 delivery_info = details.get("delivery_details", {})
                 
-                # Build Invoice
-                items_str = ""
-                for item in items:
-                    i_name = item.get("name", "Item")
-                    i_qty = item.get("quantity", 1)
-                    i_price = item.get("price", 0)
-                    items_str += f"- {i_name} (x{i_qty}): ₦{i_price:,.2f}\n"
-                
-                if isinstance(delivery_info, dict):
-                     addr_str = f"{delivery_info.get('address', '')}, {delivery_info.get('city', '')}"
-                else:
-                     addr_str = str(delivery_info)
+                items_str = "".join([f"- {i.get('name', 'Item')} (x{i.get('quantity', 1)}): ₦{i.get('price', 0):,.2f}\n" for i in items])
+                addr_str = f"{delivery_info.get('address', '')}, {delivery_info.get('city', '')}" if isinstance(delivery_info, dict) else str(delivery_info)
 
                 msg = (
                     f"✅ *PAYMENT CONFIRMED*\n"
@@ -385,16 +514,29 @@ async def receive_paystack_webhook(request: Request):
                     f"------------------------------\n"
                     f"*Items:*\n{items_str}"
                     f"------------------------------\n"
-                    f"🛍️ *Subtotal:* ₦{subtotal:,.2f}\n"
-                    f"🚚 *Delivery Fee:* ₦{fee:,.2f}\n"
+                    f"🛍️ *Subtotal:* ₦{details.get('subtotal', 0):,.2f}\n"
+                    f"🚚 *Delivery Fee:* ₦{details.get('delivery_fee', 0):,.2f}\n"
                     f"💰 *TOTAL PAID:* ₦{amount_naira:,.2f}\n"
                     f"------------------------------\n"
                     f"📦 *Delivery To:* {addr_str}\n"
-                    f"📧 *Cust Email:* {customer_email}"
+                    f"📞 *Phone:* {order.get('user_id', 'N/A')}\n"
+                    f"📧 *Email:* {customer_email}"
                 )
                 
                 await meta_service.send_whatsapp_text(manager_phone, msg)
                 logger.info(f"Admin notified of payment: {reference}")
+                
+            # Update local DB status to PAID (Source of Truth)
+            from app.services.db_service import AsyncSessionLocal
+            from sqlalchemy import text
+            
+            async with AsyncSessionLocal() as session:
+                await session.execute(
+                    text("UPDATE orders SET status = 'PAID' WHERE paystack_reference = :ref"),
+                    {"ref": reference}
+                )
+                await session.commit()
+                logger.info(f"Order {reference} marked as PAID in DB.")
                 
         return {"status": "processed"}
         

@@ -1,0 +1,270 @@
+import httpx
+import os
+import logging
+import json
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+from typing import List, Dict, Any
+
+# Configure logging locally for the server
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("pos-client")
+
+# Path to centralized mock data
+MOCK_DATA_PATH = Path(__file__).parent.parent.parent.parent / "mocks" / "products.json"
+
+class PHPPOSClient:
+    def __init__(self):
+        #>> PHPPOS should use the api URL not local host
+        self.base_url = os.getenv("PHPPOS_BASE_URL", "http://localhost/phppos")
+        self.api_key = os.getenv("POS_CONNECTOR_API_KEY", "")
+        self.headers = {
+            "accept": "application/json",
+            "x-api-key": self.api_key,
+            "User-Agent": "Ashandy-MCP-Server/1.0"
+        }
+        # Debug: Log configuration on init
+        logger.info(f"🔧 POS Client initialized: base_url={self.base_url}")
+        logger.info(f"🔧 API Key configured: {'YES (' + self.api_key[:8] + '...)' if self.api_key else 'NO - MISSING!'}")
+
+    async def search_items(self, query: str) -> str:
+        """
+        Search for items in PHPPOS by name or ID.
+        Returns a formatted string for the Agent.
+        """
+
+        #>> Hamza[task]: modify search items to be only "skincare" category fomr the search
+        # PHPPOS API uses query params for filtering: ?search=keyword&limit=100
+        url = f"{self.base_url}/items"
+        params = {
+            "search": query,
+            "limit": 100  # Get more results to filter by category client-side
+        }
+        logger.info(f"🔍 Searching POS: {url}?search={query}")
+        logger.info(f"🔑 Headers: x-api-key={'SET' if self.api_key else 'MISSING'}")
+        
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(url, headers=self.headers, params=params)
+                
+                logger.info(f"📡 POS Response status: {response.status_code}")
+                
+                if response.status_code != 200:
+                    logger.error(f"❌ POS Error {response.status_code}: {response.text[:500]}")
+                    # Fallback to mock data on API errors
+                    return self._get_mock_data(query)
+
+
+                items = response.json()
+                logger.info(f"📦 POS returned {len(items) if isinstance(items, list) else 'non-list'} items")
+                
+                # DEBUG: Log sample categories to verify correct category_id format
+                if isinstance(items, list) and len(items) > 0:
+                    sample_cats = set(item.get("category_id", item.get("category", "UNKNOWN")) for item in items[:20])
+                    logger.info(f"🏷️ Sample categories in POS: {sample_cats}")
+                
+                # CATEGORY FILTER: Only return skincare items
+                # PHPPOS uses 'category_id' field with uppercase values (e.g., "SKIN CARE")
+                ALLOWED_CATEGORY = "SKIN CARE"
+                
+                matches = []
+                query_lower = query.lower()
+                
+                for item in items:
+                    name = item.get("name", "").lower()
+                    # PHPPOS uses 'category_id' not 'category' - check both for compatibility
+                    category = item.get("category_id", item.get("category", "")).upper()
+                    
+                    # Only include skincare products
+                    if category != ALLOWED_CATEGORY:
+                        continue
+                    
+                    if query_lower in name or query_lower == str(item.get("item_id")):
+                        matches.append(item)
+                        if len(matches) >= 5:
+                            break
+                
+                if not matches:
+                    # Fallback to mock data if live POS returns nothing
+                    logger.info(f"No matches in live POS. Trying mock data for '{query}'")
+                    mock_result = self._get_mock_data(query)
+                    if mock_result and "No products found" not in mock_result:
+                        return mock_result
+                    return f"No matching skincare products found for '{query}'. We currently only sell skincare items through this channel."
+
+                # Format Logic
+                result_str = ""
+                for m in matches:
+                    # Defensive extract
+                    locs = m.get("locations", {})
+                    # Just grab first location found or "1"
+                    qty = "N/A"
+                    if locs:
+                         first_loc = list(locs.values())[0]
+                         if isinstance(first_loc, dict):
+                             qty = first_loc.get("quantity", "N/A")
+                    
+                    price = m.get("unit_price", 0)
+                    try:
+                        price = int(float(price))
+                    except:
+                        pass
+
+                    result_str += f"""
+- ID: {m.get('item_id')}
+  Name: {m.get('name')}
+  Price: ₦{price:,}
+  Stock: {qty}
+  Desc: {m.get('description', 'N/A')}
+"""
+                return result_str
+
+        except Exception as e:
+            logger.error(f"POS Client Exception: {e}")
+            return self._get_mock_data(query)
+
+    async def get_item_details(self, item_id: str) -> str:
+        """
+        Get detailed info for a specific item by ID.
+        """
+        url = f"{self.base_url}/items/{item_id}"
+        logger.info(f"Getting Item Details: {url}")
+        
+        try:
+             async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(url, headers=self.headers)
+                
+                if response.status_code != 200:
+                    return f"Error retrieving item {item_id}: {response.status_code}"
+                
+                item = response.json()
+                
+                # Format detailed view
+                price = item.get("unit_price", 0)
+                try:
+                    price = int(float(price))
+                except:
+                    pass
+                    
+                locs = item.get("locations", {})
+                stock_str = ""
+                total_qty = 0
+                for loc_id, loc_data in locs.items():
+                    q = loc_data.get("quantity", 0)
+                    stock_str += f"  - Loc {loc_id}: {q}\n"
+                    try:
+                        total_qty += float(q)
+                    except:
+                        pass
+                
+                return f"""
+[Product Details]
+ID: {item.get('item_id')}
+Name: {item.get('name')}
+Category: {item.get('category')}
+Price: ₦{price:,}
+Total Stock: {int(total_qty)}
+Breakdown:
+{stock_str}
+Description: {item.get('description')}
+Image: {item.get('image_id')}
+"""
+        except Exception as e:
+            logger.error(f"Get Item Error: {e}")
+            return f"Failed to get item details: {e}"
+
+    async def create_sale(self, sale_data: Dict[str, Any]) -> str:
+        """
+        Create a new sale/order in PHPPOS.
+        args:
+            sale_data: Dict containing 'items' (list of {item_id, quantity}), 'customer_id' (optional), etc.
+        """
+        url = f"{self.base_url}/sales"
+        logger.info(f"Creating Sale: {sale_data}")
+        
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(url, json=sale_data, headers=self.headers)
+                
+                if response.status_code not in [200, 201]:
+                    logger.error(f"Sale Creation Failed: {response.text}")
+                    return f"Failed to create sale: {response.status_code} - {response.text}"
+                
+                result = response.json()
+                return f"Sale Created Successfully. Sale ID: {result.get('sale_id')}"
+                
+        except Exception as e:
+             logger.error(f"Create Sale Error: {e}")
+             return f"Error creating sale: {e}"
+
+    async def get_sale(self, sale_id: str) -> str:
+        """
+        Get sale details.
+        """
+        url = f"{self.base_url}/sales/{sale_id}"
+        logger.info(f"Getting Sale: {sale_id}")
+        
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(url, headers=self.headers)
+                
+                if response.status_code != 200:
+                    return f"Sale {sale_id} not found."
+                
+                sale = response.json()
+                # Format specific sale details if needed, or dump JSON
+                return str(sale)
+                
+        except Exception as e:
+            return f"Error retrieving sale: {e}"
+
+    def _get_mock_data(self, query: str) -> str:
+        """Load mock data from centralized mocks/ folder and search for matching products."""
+        try:
+            if not MOCK_DATA_PATH.exists():
+                logger.warning(f"Mock data file not found: {MOCK_DATA_PATH}")
+                return f"No products found for '{query}'."
+            
+            with open(MOCK_DATA_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            products = data.get("products", [])
+            query_lower = query.lower()
+            
+            # Search for matching products (skincare only for consistency with live POS)
+            matches = [
+                p for p in products 
+                if query_lower in p.get("name", "").lower()
+                and p.get("category_id", p.get("category", "")).upper() == "SKIN CARE"
+            ][:5]
+            
+            if not matches:
+                return f"No products found matching '{query}'."
+            
+            # Format like real POS output
+            result_str = ""
+            for p in matches:
+                qty = "N/A"
+                locs = p.get("locations", {})
+                if locs:
+                    first_loc = list(locs.values())[0]
+                    if isinstance(first_loc, dict):
+                        qty = first_loc.get("quantity", "N/A")
+                
+                result_str += f"""
+- ID: {p.get('item_id')}
+  Name: {p.get('name')}
+  Price: ₦{p.get('unit_price', 0):,}
+  Stock: {qty}
+  Desc: {p.get('description', 'N/A')}
+"""
+            logger.info(f"Mock data: Found {len(matches)} products for '{query}'")
+            return result_str
+            
+        except Exception as e:
+            logger.error(f"Error loading mock data: {e}")
+            return f"No products found for '{query}'."
+

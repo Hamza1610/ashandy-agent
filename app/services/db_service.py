@@ -1,8 +1,9 @@
+"""
+Database Service: Async SQLAlchemy session management.
+"""
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import sessionmaker
 from app.utils.config import settings
 
-# Async Database Engine
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
@@ -10,7 +11,6 @@ engine = create_async_engine(
     max_overflow=settings.DB_MAX_OVERFLOW,
 )
 
-# Async Session Factory
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
@@ -19,8 +19,9 @@ AsyncSessionLocal = async_sessionmaker(
     autoflush=False,
 )
 
+
 async def get_db():
-    """Dependency for getting async database session"""
+    """Async database session dependency."""
     async with AsyncSessionLocal() as session:
         try:
             yield session

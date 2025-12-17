@@ -1,0 +1,17 @@
+[project]
+name = "ashandy-logistics-server"
+version = "0.1.0"
+description = "MCP Server for Ashandy Logistics (TomTom)"
+dependencies = [
+    "mcp[cli]>=0.1.0",
+    "httpx>=0.24.0",
+    "python-dotenv>=1.0.0"
+]
+requires-python = ">=3.10"
+
+[project.scripts]
+logistics-server = "logistics_server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

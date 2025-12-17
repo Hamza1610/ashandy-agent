@@ -47,7 +47,7 @@ The uvicorn server is running with the new graph active. Here's how to test:
 
 **Restart your server** to load the new test endpoints:
 1. Stop the current server (Ctrl+C in the terminal)
-2. Restart: `uvicorn main:app --reload --env-file .env`
+2. Restart: `uvicorn app.main:app --reload --env-file .env`
 3. Test the graph:
 
 ```powershell

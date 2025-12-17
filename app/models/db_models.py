@@ -92,3 +92,19 @@ class SafetyLog(Base):
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="safety_logs")
+
+
+class LeadScore(Base):
+    """Stores computed RFM-based lead scores for customer prioritization."""
+    __tablename__ = "lead_scores"
+
+    user_id = Column(String(255), primary_key=True, index=True)
+    score = Column(Integer, default=0)  # 0-100 composite score
+    recency_score = Column(Float, default=0.0)  # 0-1 based on last activity
+    frequency_score = Column(Float, default=0.0)  # 0-1 based on order count
+    monetary_score = Column(Float, default=0.0)  # 0-1 based on total spend
+    total_orders = Column(Integer, default=0)
+    total_spent = Column(Float, default=0.0)
+    last_order_date = Column(DateTime(timezone=True))
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+

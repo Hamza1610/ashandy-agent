@@ -18,3 +18,5 @@ build/
 venv/
 .idea/
 .vscode/
+*.sh
+*.pem

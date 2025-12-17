@@ -5,6 +5,7 @@ This follows strict typing and consistent naming conventions.
 from typing import TypedDict, Annotated, List, Dict, Optional, Literal
 from langchain_core.messages import BaseMessage
 from langgraph.graph import add_messages
+import operator
 
 
 class AgentState(TypedDict):
@@ -41,6 +42,10 @@ class AgentState(TypedDict):
     # ========== Safety ==========
     blocked: bool
     """Whether the message was blocked by safety checks"""
+    
+    # ========== Supervisor ==========
+    supervisor_verdict: Optional[Literal["safe", "block", "ignore", "cached"]]
+    """Verdict from input supervisor: safe, block, ignore, or cached"""
     
     # ========== Memory & Context ==========
     user_memory: Optional[Dict]
@@ -103,6 +108,44 @@ class AgentState(TypedDict):
     error: Optional[str]
     """Error message if any step fails"""
     
+    # ========== Planning & Execution ==========
+    plan: Optional[List[Dict]]
+    """List of tasks to execute"""
+    
+    current_step_index: Optional[int]
+    """Index of the current task being executed"""
+
+    worker_result: Optional[str]
+    """Result from the last worker execution"""
+
+    planner_thought: Optional[str]
+    """Chain-of-thought reasoning from the planner agent"""
+
+    conflict_resolution: Optional[str]
+    """Result from conflict resolver when multiple workers have outputs"""
+
+    # ========== System 2.0: Pub/Sub & Review ==========
+    task_statuses: Optional[Dict[str, str]]
+    """Status of each task ID: pending, in_progress, reviewing, approved, failed"""
+
+    retry_counts: Optional[Dict[str, int]]
+    """Number of retries for each task ID"""
+
+    reviewer_critique: Optional[str]
+    """Feedback from the Reviewer agent for the current task"""
+
+    supervisor_output_verdict: Optional[str]
+    """Verdict from the Output Supervisor"""
+
+    worker_outputs: Annotated[Dict[str, str], operator.or_]
+    """Map of task_id -> worker output string. Merged safely."""
+
+    next_workers: Optional[List[str]]
+    """Temp field for Dispatcher routing"""
+
+    worker_tool_outputs: Annotated[Dict[str, List[Dict]], operator.or_]
+    """Map of task_id -> List of {tool, args, output}. For Reviewer evidence."""
+
     # ========== Response Metadata ==========
     send_result: Optional[Dict]
     """Result of sending message via Meta API"""
