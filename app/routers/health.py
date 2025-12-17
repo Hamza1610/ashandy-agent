@@ -1,7 +1,7 @@
 """
 Health Router: System health checks for DB, Redis, and LLM providers.
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from app.services.db_service import get_db
@@ -12,8 +12,16 @@ router = APIRouter()
 
 
 @router.get("/health")
-async def health_check(db: AsyncSession = Depends(get_db)):
-    """Check core services: database and Redis."""
+async def health_check(request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+    """
+    Check core services: database and Redis.
+    Returns 503 if app is still initializing (Readiness Probe).
+    """
+    # Readiness Check
+    if not getattr(request.app.state, "is_ready", False):
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return {"status": "initializing", "message": "Application is starting up"}
+
     health_status = {"status": "healthy", "services": {"db": "unknown", "redis": "unknown"}}
 
     try:

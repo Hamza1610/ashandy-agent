@@ -287,10 +287,16 @@ async def lifespan(app: FastAPI):
     except ImportError:
         pass
 
+    # -------------------------------------------------
+    # State Initialization
+    # -------------------------------------------------
+    app.state.is_ready = False
+    
     logger.info("🚀 Lifespan entered")
     logger.info(f"Starting {settings.APP_NAME}")
 
     async def background_startup():
+        logger.info("⏳ Background startup beginning...")
         # -------------------------
         # Auto migration
         # -------------------------
@@ -356,11 +362,19 @@ async def lifespan(app: FastAPI):
                 f"Checkpointer initialization skipped: {e}. "
                 "State will not persist across restarts."
             )
+            
+        # -------------------------
+        # Mark Ready
+        # -------------------------
+        app.state.is_ready = True
+        logger.info("✨ Application is READY to accept traffic")
 
     # 🚀 Run startup work in background
     asyncio.create_task(background_startup())
 
     # ✅ IMPORTANT: yield immediately (this allows port binding)
+    # Render sees port open immediately.
+    # Load Balancer checks /health (which returns 503 until is_ready=True)
     yield
 
     # -------------------------------------------------
