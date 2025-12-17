@@ -13,6 +13,8 @@ from app.agents.support_worker import support_worker_node
 from app.agents.reviewer_agent import reviewer_agent_node
 from app.agents.conflict_resolver_agent import conflict_resolver_node
 from langchain_core.messages import AIMessage
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from app.utils.config import settings
 from functools import partial
 import logging
 
@@ -34,7 +36,12 @@ def dispatcher_node(state: AgentState):
         worker_type = step["worker"]
         
         if status == "failed":
-            return {"error": f"Task {step_id} Failed after retries."}
+            logger.error(f"Task {step_id} failed. Stopping workflow for manual intervention.")
+            return {
+                "error": f"Task {step_id} Failed after retries.",
+                "requires_handoff": True,
+                "next_workers": []  # Stop activating new workers
+            }
 
         if status in ["pending", "reviewing"]:
             deps = step.get("dependencies", [])

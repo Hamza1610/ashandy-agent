@@ -120,9 +120,22 @@ async def planner_agent_node(state: AgentState):
         return {"error": "No messages"}
 
     visual_context = state.get("visual_matches", "")
+    order_data = state.get("order_data", {})
+    ordered_items = state.get("ordered_items", [])
+    
     system_prompt = PLANNER_SYSTEM_PROMPT
     if visual_context:
         system_prompt += f"\n(Visual Context: {visual_context})\n"
+    
+    # Inject active order context so planner knows about ongoing transactions
+    if order_data or ordered_items:
+        delivery_status = "PROVIDED" if order_data.get("delivery_details") else "NEEDED"
+        system_prompt += f"\n### 🛒 ACTIVE ORDER CONTEXT\n"
+        system_prompt += f"Items in cart: {len(ordered_items)} products\n"
+        if order_data.get("total_amount"):
+            system_prompt += f"Total amount: ₦{order_data.get('total_amount', 0):,.2f}\n"
+        system_prompt += f"Delivery info: {delivery_status}\n"
+        system_prompt += f"\n**CRITICAL**: If user just provided name/phone/address, this is delivery info for the ACTIVE ORDER above. Continue with payment link generation, do NOT restart the conversation!\n\n"
 
     llm = get_llm(model_type="fast", temperature=0.0, json_mode=True)
     

@@ -32,3 +32,4 @@ apscheduler
 aiosmtplib
 sentence-transformers
 slowapi
+psycopg2
