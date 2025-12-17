@@ -40,12 +40,47 @@ async def payment_worker_node(state: AgentState):
         context_str = f"⚠️ PREVIOUS ATTEMPT REJECTED: {critique}" if retry_count > 0 and critique else ""
 
         # Order and delivery data
-        order_data = state.get("order_data", {})
+        order_data = state.get("order_data") or state.get("order") or {}
         delivery_details = order_data.get("delivery_details", {})
+        
+        # Try to extract delivery details from the last user message
+        messages = state.get("messages", [])
+        last_user_msg = ""
+        for msg in reversed(messages):
+            if hasattr(msg, "type") and msg.type == "human":
+                last_user_msg = msg.content
+                break
+            if msg.__class__.__name__ == "HumanMessage":
+                last_user_msg = msg.content
+                break
+        
+        if last_user_msg:
+            from app.tools.delivery_validation_tools import validate_and_extract_delivery
+            try:
+                extraction = await validate_and_extract_delivery.ainvoke(last_user_msg)
+                extracted = extraction.get("extracted", {})
+                
+                # Update delivery_details with extracted info
+                if extracted.get("name"):
+                    delivery_details["name"] = extracted["name"]
+                if extracted.get("phone"):
+                    delivery_details["phone"] = extracted["phone"]
+                if extracted.get("address"):
+                    delivery_details["address"] = extracted["address"]
+                if extracted.get("city"):
+                    delivery_details["city"] = extracted["city"]
+                if extracted.get("email") and "@" in extracted.get("email", ""):
+                    delivery_details["email"] = extracted["email"]
+                
+                order_data["delivery_details"] = delivery_details
+                logger.info(f"Payment Worker: Extracted delivery details: {delivery_details}")
+            except Exception as e:
+                logger.debug(f"Could not extract delivery details: {e}")
+        
         customer_email = state.get("customer_email") or delivery_details.get("email") or DEFAULT_EMAIL
         
         # Validate delivery details for payment tasks
-        is_payment_task = "payment" in task_desc.lower() or "link" in task_desc.lower()
+        is_payment_task = "payment" in task_desc.lower() or "link" in task_desc.lower() or "delivery" in task_desc.lower()
         delivery_ready_msg = ""
         
         if is_payment_task and order_data.get("delivery_type", "").lower() != "pickup":
@@ -58,7 +93,9 @@ async def payment_worker_node(state: AgentState):
                 return {
                     "worker_outputs": {my_task["id"]: f"❌ Cannot process payment yet.\n\n{request_msg}\n\nMissing: {', '.join(missing)}"},
                     "worker_tool_outputs": {my_task["id"]: []},
-                    "messages": [AIMessage(content=f"❌ Cannot process payment yet.\n\n{request_msg}\n\nMissing: {', '.join(missing)}")]
+                    "messages": [AIMessage(content=f"❌ Cannot process payment yet.\n\n{request_msg}\n\nMissing: {', '.join(missing)}")],
+                    "order_data": order_data,  # Preserve extracted details for next turn!
+                    "order": order_data  # Also update 'order' key for compatibility
                 }
             else:
                 customer_email = check_result.get("email", DEFAULT_EMAIL)
@@ -139,23 +176,24 @@ Order: {json.dumps(order_data, default=str)}
                 tool_outputs_text += f"\n{item['output']}"
             
             if tool_outputs_text.strip():
-                formatting_prompt = f"""You ARE Awéléwà, the payment and delivery specialist for Ashandy Home of Cosmetics.
+                formatting_prompt = f"""Format this payment/delivery data into a friendly response.
 
 PAYMENT/DELIVERY DATA:
 {tool_outputs_text}
 
-RESPOND DIRECTLY TO THE CUSTOMER. Do NOT include meta-text like "Here's a response:" or "I would say:".
-
-YOUR RESPONSE MUST:
-- Be in FIRST PERSON (I've calculated, Here's your link, Your order)
+RULES:
+- DO NOT introduce yourself (no "I'm Awéléwà" or "I'm your assistant")
 - Present pricing clearly with ₦ symbol
 - If payment link exists, present it prominently
 - Explain next steps (After payment, you'll receive...)
-- Keep it concise but complete
+- Keep it under 250 chars
 - Use emojis: 💳 🛍️ 📦 ✨
 - NEVER show raw data like "Result of tool:"
 
-NOW RESPOND AS AWÉLÉWÀ:"""
+GOOD EXAMPLE:
+"Great choice! 🛍️ Your order total is *₦19,500* (including ₦1,500 delivery). Here's your payment link: [link] 💳 You'll get confirmation after payment! ✨"
+
+NOW FORMAT THE RESPONSE:"""
                 format_response = await get_llm(model_type="fast", temperature=0.3).ainvoke(
                     [HumanMessage(content=formatting_prompt)]
                 )

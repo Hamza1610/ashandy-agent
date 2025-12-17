@@ -85,3 +85,76 @@ async def resolve_incident(incident_id: str, resolution: str) -> str:
     except Exception as e:
         logger.error(f"Resolve incident error: {e}")
         return f"Error: {str(e)}"
+
+
+@tool
+async def get_top_customers(period: str = "week", limit: int = 10) -> str:
+    """
+    Get top customers by lead score for a period.
+    Period: 'week', 'month', 'all'. Returns customers ranked by RFM score.
+    Use this when admin asks "Who patronised us most?" or "Top customers".
+    """
+    try:
+        from app.services.profile_service import profile_service
+        from datetime import datetime, timedelta
+        
+        # Calculate date range
+        now = datetime.now()
+        if period == "week":
+            start_date = now - timedelta(days=7)
+            period_label = "This Week"
+        elif period == "month":
+            start_date = now - timedelta(days=30)
+            period_label = "This Month"
+        else:
+            start_date = now - timedelta(days=365)
+            period_label = "All Time"
+        
+        async with AsyncSessionLocal() as session:
+            # Get customers with orders in period
+            query = text("""
+                SELECT 
+                    cp.user_id,
+                    cp.total_purchases,
+                    cp.total_spent,
+                    cp.last_purchase_at,
+                    cp.avg_sentiment
+                FROM customer_profiles cp
+                WHERE cp.last_purchase_at >= :start_date
+                  AND cp.total_purchases > 0
+                ORDER BY cp.total_spent DESC
+                LIMIT :limit
+            """)
+            result = await session.execute(query, {"start_date": start_date, "limit": limit})
+            rows = result.fetchall()
+            
+            if not rows:
+                return f"📊 No customers with purchases in {period_label.lower()}."
+            
+            # Compute lead scores and format output
+            output = f"📊 **Top Customers - {period_label}**\n\n"
+            output += "| Rank | Customer | Orders | Spent | Score |\n"
+            output += "|------|----------|--------|-------|-------|\n"
+            
+            for i, row in enumerate(rows, 1):
+                r = dict(row._mapping)
+                user_id = r.get('user_id', 'Unknown')
+                # Mask user ID for privacy
+                masked_id = f"...{user_id[-6:]}" if len(user_id) > 6 else user_id
+                orders = r.get('total_purchases', 0)
+                spent = r.get('total_spent', 0)
+                
+                # Compute lead score using profile service
+                try:
+                    score = await profile_service.compute_lead_score(user_id)
+                except:
+                    score = 50  # Default if computation fails
+                
+                output += f"| {i} | {masked_id} | {orders} | ₦{spent:,.0f} | {score}/100 |\n"
+            
+            return output
+            
+    except Exception as e:
+        logger.error(f"Get top customers error: {e}")
+        return f"Error retrieving customer data: {str(e)}"
+

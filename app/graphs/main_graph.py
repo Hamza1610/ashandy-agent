@@ -176,6 +176,31 @@ workflow.add_conditional_edges(
 )
 
 # Add checkpointer for conversation state persistence
-from langgraph.checkpoint.memory import MemorySaver
-memory = MemorySaver()
-app = workflow.compile(checkpointer=memory)
+# Use Redis for persistent state (survives server restarts)
+# Falls back to MemorySaver if Redis checkpointer not available
+try:
+    from langgraph.checkpoint.redis.aio import AsyncRedisSaver
+    from app.utils.config import settings
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    redis_url = settings.REDIS_URL or f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}"
+    checkpointer = AsyncRedisSaver.from_conn_info(url=redis_url)
+    logger.info(f"Using Redis checkpointer for persistent state: {redis_url}")
+    app = workflow.compile(checkpointer=checkpointer)
+except ImportError:
+    # Fallback to MemorySaver if langgraph-checkpoint-redis not installed
+    from langgraph.checkpoint.memory import MemorySaver
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.warning("langgraph-checkpoint-redis not installed. Using volatile MemorySaver. Install with: pip install langgraph-checkpoint-redis")
+    memory = MemorySaver()
+    app = workflow.compile(checkpointer=memory)
+except Exception as e:
+    from langgraph.checkpoint.memory import MemorySaver
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Redis checkpointer failed ({e}). Using volatile MemorySaver.")
+    memory = MemorySaver()
+    app = workflow.compile(checkpointer=memory)

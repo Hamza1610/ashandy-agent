@@ -1,7 +1,7 @@
 # 🤖 Ashandy AI Agent (Project Awéléwà)
 ### *Production-Grade Conversational Commerce System*
 
-![Version](https://img.shields.io/badge/Version-2.0-blue.svg) ![Status](https://img.shields.io/badge/Status-Production--Ready-green.svg) ![Stack](https://img.shields.io/badge/Tech-LangGraph%20%7C%20FastAPI%20%7C%20MCP-orange.svg)
+![Version](https://img.shields.io/badge/Version-2.1-blue.svg) ![Status](https://img.shields.io/badge/Status-Production--Ready-green.svg) ![Stack](https://img.shields.io/badge/Tech-LangGraph%20%7C%20FastAPI%20%7C%20MCP-orange.svg)
 
 **Winner of the Meta AI Developer Academy Hackathon 2025 (Loading...)**
 **Built by Team HAI (Beneficiaries of RAIN Nigeria)**
@@ -13,14 +13,14 @@
 ## 📊 System Stats at a Glance
 | Metric | Count | Details |
 | :--- | :---: | :--- |
-| **Total Autonomous Agents** | **9** | Supervisor, Planner, Dispatcher, 4 Workers, Reviewers, Resolver |
+| **Total Autonomous Agents** | **8** | Supervisor, Planner, 4 Workers, Reviewer, Conflict Resolver |
 | **Micro-Services** | **19** | Business logic modules |
 | **Tool Servers (MCP)** | **4** | POS, Payment, Knowledge, Logistics |
 | **Safety Layers** | **7** | Including Llama Guard, Rate Limits, & Reviewers |
 
 ---
 
-## 🏗️ System Architecture V2.0
+## 🏗️ System Architecture V2.1
 
 The system utilizes a **Hierarchical State Graph** architecture. Requests are not just answered; they are Planned, Dispatched, Executed, Reviewed, and Resolved.
 
@@ -129,7 +129,7 @@ graph TB
 ```text
 ashandy-agent/
 ├── app/
-│   ├── agents/                 # The 9 Autonomous Agents
+│   ├── agents/                 # The 8 Autonomous Agents
 │   │   ├── supervisor_agent.py
 │   │   ├── planner_agent.py
 │   │   ├── sales_worker.py...

@@ -43,7 +43,7 @@
 
 | Metric | Value |
 |--------|-------|
-| Total Agents | 9 |
+| Total Agents | 8 |
 | Total Services | 19 |
 | Total Tools | 19 |
 | MCP Servers | 4 |
@@ -720,7 +720,7 @@ Configured via `deployment/render.yaml`
 ashandy-agent/
 ├── app/
 │   ├── main.py                 # FastAPI entry point
-│   ├── agents/                 # 9 agent files
+│   ├── agents/                 # 8 agent files
 │   │   ├── supervisor_agent.py
 │   │   ├── planner_agent.py
 │   │   ├── sales_worker.py
