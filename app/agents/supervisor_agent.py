@@ -105,14 +105,14 @@ async def supervisor_agent_node(state: AgentState):
                 }
 
             # === CACHE CHECK (before LLM processing) ===
-            cached_response = await response_cache_service.get_cached_response(content_text, user_id)
-            if cached_response:
-                logger.info(f"Supervisor: Cache HIT - returning cached response")
-                return {
-                    "supervisor_verdict": "cached",
-                    "cached_response": cached_response,
-                    "messages": [AIMessage(content=cached_response)]
-                }
+            # cached_response = await response_cache_service.get_cached_response(content_text, user_id)
+            # if cached_response:
+            #     logger.info(f"Supervisor: Cache HIT - returning cached response")
+            #     return {
+            #         "supervisor_verdict": "cached",
+            #         "cached_response": cached_response,
+            #         "messages": [AIMessage(content=cached_response)]
+            #     }
 
         # Consultation policy check
         if any(k in clean_text for k in CONSULTATION_KEYWORDS):
