@@ -1,7 +1,7 @@
 """
 Webhooks Router: Handles incoming messages from WhatsApp, Instagram, and Paystack.
 """
-from fastapi import APIRouter, Request, HTTPException, Header
+from fastapi import APIRouter, Request, HTTPException, Header, Form
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.utils.config import settings
@@ -194,6 +194,112 @@ async def receive_whatsapp_webhook(request: Request, payload: WhatsAppWebhookPay
             
     except Exception as e:
         logger.error(f"WhatsApp processing error: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@router.post("/twilio/whatsapp")
+async def receive_twilio_webhook(request: Request):
+    """Process incoming WhatsApp messages via Twilio."""
+    from app.graphs.main_graph import app as agent_app
+    from langchain_core.messages import HumanMessage
+    
+    try:
+        form_data = await request.form()
+        from_number = form_data.get("From", "")
+        body = form_data.get("Body", "")
+        num_media = int(form_data.get("NumMedia", 0)) if form_data.get("NumMedia") else 0
+        
+        # Normalize user_id
+        user_id = from_number.replace("whatsapp:", "") if from_number.startswith("whatsapp:") else from_number
+        
+        image_url = None
+        user_message_content = body
+        visual_analysis = None
+        
+        # Handle Images
+        if num_media > 0:
+            media_type = form_data.get("MediaContentType0", "")
+            if "image" in media_type:
+                image_url = form_data.get("MediaUrl0")
+                
+                # Use User's caption if available, else body
+                # Twilio doesn't always separate caption clearly, often in Body
+                
+                # PRE-ANALYZE IMAGE (Parity with Meta logic)
+                try:
+                    from app.tools.visual_tools import detect_product_from_image
+                    logger.info(f"Pre-analyzing Twilio image: {image_url[:50]}...")
+                    analysis = await detect_product_from_image.ainvoke(image_url)
+                    if analysis and not analysis.get("error"):
+                        visual_analysis = analysis
+                        detected_text = analysis.get("detected_text", "")
+                        product_type = analysis.get("product_type", "")
+                        matched = analysis.get("matched_products", "")
+                        
+                        if detected_text or matched:
+                            user_message_content += f" [IMAGE DETECTED: {detected_text or product_type}. Matches: {matched}]"
+                            logger.info(f"Image pre-analysis: {detected_text}, matched: {matched}")
+                except Exception as e:
+                    logger.error(f"Image pre-analysis failed: {e}")
+
+        logger.info(f"Twilio Webhook: User {user_id} says '{user_message_content[:50]}...'")
+        
+        # Construct Message
+        human_msg = HumanMessage(content=user_message_content)
+        if image_url:
+            human_msg.additional_kwargs["image_url"] = image_url
+            
+        input_state = {
+            "messages": [human_msg],
+            "user_id": user_id,
+            "session_id": user_id,
+            "platform": "whatsapp",
+            "provider": "twilio",
+            "is_admin": False,
+            "blocked": False,
+            "order_intent": False,
+            "requires_handoff": False,
+            "query_type": "text",
+            "last_user_message": user_message_content,
+            "task_statuses": {},
+            "plan": []
+        }
+        
+        final_state = await agent_app.ainvoke(
+            input_state,
+            config={
+                "configurable": {"thread_id": user_id},
+                "recursion_limit": 100
+            }
+        )
+        
+        final_messages = final_state.get("messages", [])
+        last_reply = None
+        
+        for msg in reversed(final_messages):
+            msg_type = type(msg).__name__
+            if msg_type in ["HumanMessage", "ToolMessage"]:
+                continue
+            if hasattr(msg, 'content') and msg.content and isinstance(msg.content, str):
+                last_reply = msg.content.strip()
+                break
+                
+        # Save memory
+        if user_message_content and last_reply:
+            try:
+                from app.tools.vector_tools import save_user_interaction
+                await save_user_interaction.ainvoke({
+                    "user_id": user_id,
+                    "user_msg": user_message_content,
+                    "ai_msg": last_reply
+                })
+            except Exception as e:
+                logger.error(f"Memory save error: {e}")
+                
+        return {"status": "processed", "channel": "whatsapp-twilio", "user_id": user_id}
+
+    except Exception as e:
+        logger.error(f"Twilio processing error: {e}")
         return {"status": "error", "message": str(e)}
 
 
