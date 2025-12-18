@@ -1,9 +1,9 @@
 # 🤖 Ashandy AI Agent (Project Awéléwà)
 ### *Production-Grade Conversational Commerce System*
 
-![Version](https://img.shields.io/badge/Version-2.1-blue.svg) ![Status](https://img.shields.io/badge/Status-Production--Ready-green.svg) ![Stack](https://img.shields.io/badge/Tech-LangGraph%20%7C%20FastAPI%20%7C%20MCP-orange.svg)
+![Version](https://img.shields.io/badge/Version-2.2-blue.svg) ![Status](https://img.shields.io/badge/Status-Production--Ready-green.svg) ![Stack](https://img.shields.io/badge/Tech-LangGraph%20%7C%20FastAPI%20%7C%20MCP-orange.svg)
 
-**Winner of the Meta AI Developer Academy Hackathon 2025 (Loading...)**
+**Winner of the Meta AI Developer Academy Hackathon 2025 (Loading...)**  
 **Built by Team HAI (Beneficiaries of RAIN Nigeria)**
 
 ---
@@ -14,15 +14,14 @@
 | Metric | Count | Details |
 | :--- | :---: | :--- |
 | **Total Autonomous Agents** | **8** | Supervisor, Planner, 4 Workers, Reviewer, Conflict Resolver |
+| **Tool Knowledge Registry** | **26** | All tools with validation rules |
 | **Micro-Services** | **19** | Business logic modules |
 | **Tool Servers (MCP)** | **4** | POS, Payment, Knowledge, Logistics |
-| **Safety Layers** | **7** | Including Llama Guard, Rate Limits, & Reviewers |
+| **Safety Layers** | **8** | Including Llama Guard, Rate Limits, & Reviewers |
 
 ---
 
-## 🏗️ System Architecture V2.1
-
-The system utilizes a **Hierarchical State Graph** architecture. Requests are not just answered; they are Planned, Dispatched, Executed, Reviewed, and Resolved.
+## 🏗️ System Architecture V2.2
 
 ```mermaid
 graph TB
@@ -45,40 +44,32 @@ graph TB
     end
     
     CR --> OS[📤 Output Supervisor]
-
 ```
 
-## 🧠 The Agent Hierarchy
+## 🧠 The Agent Hierarchy & Power Sources
 
-1. **🔒 Supervisor:** The Gatekeeper. Handles Llama Guard safety checks, cache lookups (Redis), and Admin detection.
-
-2. **🧠 Planner:** Uses **Chain-of-Thought** reasoning to decompose complex user requests into a dependency map.
-
-3. **📦 Dispatcher:** Routes tasks to the correct specialized worker.
-
-4. **💼 The Workers:**
-* **Sales Worker:** Product search, stock checks, upselling.
-* **Payment Worker:** Generates Paystack links, tracks orders.
-* **Admin Worker:** Generates weekly reports, syncs inventory.
-* **Support Worker:** Handles complaints and ticket escalation.
-
-
-5. **📋 Reviewers:** A specialized critic loop that validates worker output against tool evidence (prevents hallucinations).
-
-6. **⚖️ Conflict Resolver:** Synthesizes outputs from multiple workers into one coherent response.
+| Agent | Role | Power Source (MCP) |
+|-------|------|-------------------|
+| 🔒 **Supervisor** | Gatekeeper - Safety, cache, admin detection | Llama Guard, Redis |
+| 🧠 **Planner** | Chain-of-Thought task decomposition | LLM reasoning |
+| 📦 **Dispatcher** | Routes tasks to workers | State machine |
+| 💄 **Sales Worker** | Product search, stock, upselling | 🛒 POS, 📚 Knowledge, 🎨 DINOv2 |
+| 💰 **Payment Worker** | Payment links, orders | 💳 Payment, 🚚 Logistics, 🛒 POS |
+| ⚙️ **Admin Worker** | Reports, approvals, broadcast | 🛒 POS, 📚 Knowledge, 📡 Meta API |
+| 💬 **Support Worker** | Complaints, tickets, escalation | 🛒 POS, 📡 Meta API, 📊 PostgreSQL |
+| 📋 **Reviewer** | Anti-hallucination validation | 📖 Tool Knowledge Registry (26 tools) |
+| ⚖️ **Conflict Resolver** | Synthesizes multi-worker outputs | Priority: Payment > Support > Sales |
 
 ---
 
-## 🔌 MCP Server Architecture (Model Context Protocol)
-* We utilize the **Model Context Protocol (MCP)** to decouple our LLM agents from our backend tools. 
-* We run 4 distinct FastMCP Servers:
+## 🔌 MCP Server Architecture
 
-| Server | Port | Responsibilities | Tools Exposed |
-| --- | --- | --- | --- |
-| **🛒 POS Server** | `5001` | PHP POS Integration | `search_products`, `check_stock`, `create_order` |
-| **💳 Payment Server** | `5002` | Paystack Integration | `create_payment_link`, `verify_payment` |
-| **📚 Knowledge Server** | `5003` | Pinecone / Memory | `search_memory`, `save_memory`, `delete_memory` |
-| **🚚 Logistics Server** | `5004` | Geofencing & Pricing | `calculate_delivery_fee`, `validate_address` |
+| Server | Responsibilities | Tools Exposed |
+|--------|------------------|---------------|
+| 🛒 **POS** | PHP POS Integration | `search_products`, `check_stock`, `create_order` |
+| 💳 **Payment** | Paystack Integration | `create_payment_link`, `verify_payment` |
+| 📚 **Knowledge** | Pinecone / Memory | `search_memory`, `save_memory`, `delete_memory` |
+| 🚚 **Logistics** | Geofencing & Pricing | `calculate_delivery_fee`, `validate_address` |
 
 ---
 
