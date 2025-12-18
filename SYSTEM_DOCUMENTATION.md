@@ -1,6 +1,6 @@
 # Ashandy AI Agent - Complete System Documentation
 
-> **Version:** 2.1 • **Last Updated:** December 17, 2025  
+> **Version:** 2.2 • **Last Updated:** December 18, 2025  
 > **Author:** Team HAI
 
 ---
@@ -45,7 +45,7 @@
 |--------|-------|
 | Total Agents | 8 |
 | Total Services | 19 |
-| Total Tools | 19 |
+| Total Tools | 26 (worker-bound) |
 | MCP Servers | 4 |
 | Overall Score | 88.75/100 |
 
@@ -304,7 +304,112 @@ purchase_keywords = {
 }
 ```
 
----
+### 3.6 Agent Power Sources (MCP Connections)
+
+Each worker agent draws its capabilities from one or more MCP servers:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        AGENT POWER SOURCE MAP                          │
+├────────────────────────────────────────────────────────────────────────┤
+│  💄 SALES WORKER                                                       │
+│  └─► 🛒 POS Server      │ search_products, check_product_stock        │
+│  └─► 📚 Knowledge Server │ retrieve_user_memory, save_user_interaction │
+│  └─► 🎨 DINOv2 API      │ detect_product_from_image, visual search    │
+├────────────────────────────────────────────────────────────────────────┤
+│  💰 PAYMENT WORKER                                                     │
+│  └─► 💳 Payment Server  │ generate_payment_link, verify_payment       │
+│  └─► 🚚 Logistics Server│ calculate_delivery_fee, geocode_address     │
+│  └─► 🛒 POS Server      │ create_order_record                         │
+├────────────────────────────────────────────────────────────────────────┤
+│  ⚙️ ADMIN WORKER                                                       │
+│  └─► 🛒 POS Server      │ inventory sync, approval lists              │
+│  └─► 📚 Knowledge Server│ customer profiles, lead scoring             │
+│  └─► 📡 Meta API        │ relay_message_to_customer                   │
+├────────────────────────────────────────────────────────────────────────┤
+│  💬 SUPPORT WORKER                                                     │
+│  └─► 🛒 POS Server      │ lookup_order_history                        │
+│  └─► 📡 Meta API        │ escalate_to_manager                         │
+│  └─► 📊 PostgreSQL      │ create_support_ticket                       │
+├────────────────────────────────────────────────────────────────────────┤
+│  📋 REVIEWER AGENT                                                     │
+│  └─► 📖 Tool Knowledge   │ Validation rules from tool_knowledge.py    │
+│      Registry            │ 26 tools with expected outputs defined     │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### 3.7 Tool Knowledge Registry (Reviewer Enhancement)
+
+The Reviewer Agent uses a **Tool Knowledge Registry** (`app/utils/tool_knowledge.py`) to validate worker outputs accurately.
+
+#### Registry Structure
+
+```python
+TOOL_KNOWLEDGE = {
+    "tool_name": {
+        "worker": "worker_type",
+        "purpose": "What the tool does",
+        "expected_output": "What success looks like",
+        "success_indicators": ["keyword1", "keyword2"],
+        "failure_modes": {
+            "Error type": "How to fix it"
+        },
+        "validation_rules": ["Rule 1", "Rule 2"]
+    }
+}
+```
+
+#### Tool Counts by Worker
+
+| Worker | Tool Count | Examples |
+|--------|------------|----------|
+| Sales | 7 | search_products, detect_product_from_image, search_text_products |
+| Payment | 6 | calculate_delivery_fee, generate_payment_link, validate_delivery |
+| Support | 3 | lookup_order_history, create_support_ticket, escalate_to_manager |
+| Admin | 10 | generate_report, approve_order, relay_message_to_customer |
+| **Total** | **26** | |
+
+#### Tiered Validation Rules
+
+| Worker | Mode | Description |
+|--------|------|-------------|
+| Sales | STRICT | Anti-hallucination, product claims must match evidence |
+| Payment | MODERATE | Validate payment URLs and delivery completeness |
+| Support | EMPATHY | Focus on tone and ticket creation |
+| Admin | TRUST | Minimal validation for privileged users |
+
+#### Valid Exceptions (No Tool Evidence Required)
+
+- Simple greetings/farewells
+- Non-skincare apologetic responses ("we only handle skincare")
+- Alternative suggestions that appear in tool output
+- Delivery detail requests
+- Order confirmations
+
+### 3.8 Anti-Hallucination Enforcement
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    ANTI-HALLUCINATION FLOW                      │
+│                                                                 │
+│  Worker calls search_products("CeraVe")                         │
+│                    │                                            │
+│                    ▼                                            │
+│  Tool returns: "No exact match. Similar: Nivea ₦4,500"          │
+│                    │                                            │
+│                    ▼                                            │
+│  Worker recommends Nivea → ✅ VALID (from tool output)          │
+│  Worker invents "Random ₦3,000" → ❌ REJECTED (no evidence)     │
+│                                                                 │
+│  State Flow:                                                    │
+│  worker_tool_outputs[task_id] = [{"tool": name, "output": ...}] │
+│                    │                                            │
+│                    ▼                                            │
+│  Reviewer reads tool evidence                                   │
+│  Looks up TOOL_KNOWLEDGE[tool_name]                             │
+│  Validates worker output against expected indicators            │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ## 4. MCP Server Architecture
 

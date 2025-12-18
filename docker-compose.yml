@@ -12,13 +12,16 @@ services:
       - postgres_data:/var/lib/postgresql/data
 
   redis:
-    image: redis:7-alpine
+    image: redis/redis-stack:latest
     restart: always
     ports:
       - "6379:6379"
+      - "8001:8001" # RedisInsight (optional web UI)
     volumes:
       - redis_data:/data
 
 volumes:
   postgres_data:
   redis_data:
+
+
