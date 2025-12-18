@@ -125,10 +125,10 @@ class AgentState(TypedDict):
     """Result from conflict resolver when multiple workers have outputs"""
 
     # ========== System 2.0: Pub/Sub & Review ==========
-    task_statuses: Optional[Dict[str, str]]
+    task_statuses: Annotated[Optional[Dict[str, str]], operator.or_]
     """Status of each task ID: pending, in_progress, reviewing, approved, failed"""
 
-    retry_counts: Optional[Dict[str, int]]
+    retry_counts: Annotated[Optional[Dict[str, int]], operator.or_]
     """Number of retries for each task ID"""
 
     reviewer_critique: Optional[str]

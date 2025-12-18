@@ -74,7 +74,7 @@ async def escalate_to_manager(user_id: str, incident_id: str, reason: str) -> st
     await incident_service.update_status(incident_id, "ESCALATED")
     
     # Notify manager
-    if settings.ADMIN_PHONE_NUMBERS:
+    if settings.ADMIN_PHONE_NUMBERS and len(settings.ADMIN_PHONE_NUMBERS) > 0:
         message = (
             f"⚠️ *ESCALATION REQUIRED*\n\n"
             f"📋 Ticket: #{incident_id[:8]}\n"
@@ -83,6 +83,8 @@ async def escalate_to_manager(user_id: str, incident_id: str, reason: str) -> st
             f"Please contact the customer directly."
         )
         await meta_service.send_whatsapp_text(settings.ADMIN_PHONE_NUMBERS[0], message)
+    else:
+        logger.error(f"Cannot send escalation notification: No admin phone numbers configured")
     
     return (
         f"I've escalated this to our manager who will contact you directly. "

@@ -69,7 +69,10 @@ def dispatcher_edge(state: AgentState):
         return "conflict_resolver" if all_complete else "end_fail"
     
     # Route to first available worker (supports sales, admin, payment, support)
-    return next_workers
+    # CRITICAL: Must return string, not list, for conditional_edges to match
+    if len(next_workers) > 1:
+        logger.warning(f"Multiple workers ready: {next_workers}. Routing to first: {next_workers[0]}")
+    return next_workers[0] if next_workers else "end_fail"
 
 
 def supervisor_router(state: AgentState):

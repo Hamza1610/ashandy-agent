@@ -21,7 +21,7 @@ async def sales_worker_node(state: AgentState):
         user_id = state.get("user_id")
         messages = state.get("messages", [])
         plan = state.get("plan", [])
-        task_statuses = state.get("task_statuses", {})
+        task_statuses = state.get("task_statuses") or {}
         product_recommendations = []  # Initialize safely
         
         # Find active task
@@ -48,7 +48,7 @@ async def sales_worker_node(state: AgentState):
         # Visual context
         visual_info_block = ""
         image_url = state.get("image_url") 
-        if not image_url and messages:
+        if not image_url and messages and len(messages) > 0:
             image_url = messages[-1].additional_kwargs.get("image_url")
         
         if image_url:
@@ -322,7 +322,7 @@ NOW FORMAT THE RESPONSE:"""
                 except Exception as e:
                     logger.warning(f"Formatting LLM failed: {e}. Using Template Fallback.")
                     # TEMPLATE FALLBACK (High Quality)
-                    if product_recommendations:
+                    if product_recommendations and len(product_recommendations) > 0:
                         best_product = product_recommendations[0]
                         final_result = f"I found exactly what you need! ✨ The *{best_product['name']}* is available for ₦{best_product['price']:,.0f}. 💕 Shall I add it to your order?"
                         if len(product_recommendations) > 1:

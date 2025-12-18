@@ -37,7 +37,7 @@ async def admin_worker_node(state: AgentState):
     # Find active task
     current_step = None
     for step in plan:
-        if step.get("worker") == "admin_worker" and task_statuses.get(step["id"]) == "in_progress":
+        if step.get("worker") == "admin_worker" and task_statuses.get(step.get("id")) == "in_progress":
             current_step = step
             break
     

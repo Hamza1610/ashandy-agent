@@ -24,7 +24,7 @@ async def payment_worker_node(state: AgentState):
         # Find active task
         my_task = None
         for step in plan:
-            if step.get("worker") == "payment_worker" and task_statuses.get(step["id"]) == "in_progress":
+            if step.get("worker") == "payment_worker" and task_statuses.get(step.get("id")) == "in_progress":
                 my_task = step
                 break
         

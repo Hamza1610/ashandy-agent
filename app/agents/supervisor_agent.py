@@ -31,7 +31,8 @@ async def supervisor_agent_node(state: AgentState):
         logger.info("🚦 SUPERVISOR ENTRY - Function started")
         messages = state.get("messages", [])
         if not messages:
-            return {"supervisor_verdict": "ignore"}
+            logger.warning("Supervisor called with no messages")
+            return {"supervisor_verdict": "ignore", "blocked": False}
             
         last_message = messages[-1]
         
