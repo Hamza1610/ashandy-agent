@@ -1,12 +1,9 @@
 """
 Ashandy Agent: FastAPI application entry point.
-"""
 
-
-
-
-"""
-Ashandy Agent: FastAPI application entry point.
+Main application module with lifespan management, middleware configuration,
+and router registration. Handles startup/shutdown tasks including MCP server
+initialization, cache warming, and checkpointer setup.
 """
 import asyncio
 import logging
@@ -79,6 +76,12 @@ try:
     MCP_SERVICE_AVAILABLE = True
 except ImportError:
     MCP_SERVICE_AVAILABLE = False
+
+try:
+    from app.services.checkpointer_service import checkpointer_service
+    CHECKPOINTER_SERVICE_AVAILABLE = True
+except ImportError:
+    CHECKPOINTER_SERVICE_AVAILABLE = False
 
 
 # -------------------------------------------------
@@ -153,29 +156,24 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"Cache warming failed: {e}")
 
         # -------------------------
-        # LangGraph Checkpointer (optional, safe)
+        # LangGraph Checkpointer
         # -------------------------
-        try:
-            from app.graphs.main_graph import app as graph_app
-            from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-
-            postgres_url = settings.DATABASE_URL.replace(
-                "postgresql+asyncpg://", "postgresql://"
-            )
-
-            checkpointer_context = AsyncPostgresSaver.from_conn_string(postgres_url)
-            checkpointer = await checkpointer_context.__aenter__()
-            await checkpointer.setup()
-
-            graph_app.checkpointer = checkpointer
-            app.state.checkpointer_context = checkpointer_context
-
-            logger.info("✅ Graph checkpointer initialized")
-        except Exception as e:
-            logger.warning(
-                f"Checkpointer initialization skipped: {e}. "
-                "State will not persist across restarts."
-            )
+        if CHECKPOINTER_SERVICE_AVAILABLE:
+            try:
+                persistent = await checkpointer_service.initialize()
+                backend = checkpointer_service.backend
+                if persistent:
+                    logger.info(f"✅ Checkpointer initialized: {backend}")
+                else:
+                    logger.info(f"Using {backend} checkpointer (volatile)")
+                
+                # Recompile graph with the new checkpointer
+                from app.graphs import main_graph
+                main_graph.app = main_graph.workflow.compile(
+                    checkpointer=checkpointer_service.get_checkpointer()
+                )
+            except Exception as e:
+                logger.warning(f"Checkpointer initialization failed: {e}")
             
         # -------------------------
         # Mark Ready
@@ -214,6 +212,13 @@ async def lifespan(app: FastAPI):
             logger.info("Checkpointer context cleaned up")
         except Exception as e:
             logger.warning(f"Checkpointer cleanup error: {e}")
+    
+    # Cleanup checkpointer service
+    if CHECKPOINTER_SERVICE_AVAILABLE:
+        try:
+            await checkpointer_service.cleanup()
+        except Exception as e:
+            logger.warning(f"Checkpointer service cleanup error: {e}")
 
     logger.info(f"Shut down {settings.APP_NAME}")
 

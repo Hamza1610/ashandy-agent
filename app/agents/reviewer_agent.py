@@ -1,8 +1,11 @@
 """
 Reviewer Agent: Quality assurance auditor that validates worker outputs against evidence.
+
+Enhanced with comprehensive tool knowledge for accurate validation across all workers.
 """
 from app.state.agent_state import AgentState
 from app.services.llm_service import get_llm
+from app.utils.tool_knowledge import get_tool_validation_prompt, get_worker_audit_rules
 from langchain_core.messages import SystemMessage
 import logging
 import json
@@ -42,16 +45,27 @@ async def reviewer_agent_node(state: AgentState, worker_scope: str = None):
             return {}
 
         task_desc = current_step.get("task", "")
+        worker_type = current_step.get("worker", "unknown")
         worker_result = state.get("worker_outputs", {}).get(task_id, "")
         
-        # Build evidence block
+        # Build evidence block with tool names for knowledge lookup
         tool_evidence = state.get("worker_tool_outputs", {}).get(task_id, [])
+        called_tools = []
+        
         if tool_evidence:
-            evidence_block = "### 🔍 DATABASE EVIDENCE:\n"
+            evidence_block = "### 🔍 TOOL EVIDENCE:\n"
             for item in tool_evidence:
-                evidence_block += f"- Tool: {item['tool']}\n  Args: {item['args']}\n  Output: {item['output']}\n"
+                tool_name = item.get('tool', 'unknown')
+                called_tools.append(tool_name)
+                evidence_block += f"- **{tool_name}**\n  Args: {item.get('args', {})}\n  Output: {item.get('output', '')}\n"
         else:
             evidence_block = "### ⚠️ NO TOOL EVIDENCE AVAILABLE"
+
+        # Get dynamic tool knowledge for the tools that were actually called
+        tool_validation_block = get_tool_validation_prompt(called_tools)
+        
+        # Get worker-specific audit rules (tiered strictness)
+        worker_audit_rules = get_worker_audit_rules(worker_type)
 
         # Check retry count
         retry_counts = state.get("retry_counts", {})
@@ -70,70 +84,65 @@ async def reviewer_agent_node(state: AgentState, worker_scope: str = None):
         system_prompt = f"""You are the Quality Assurance Auditor for an AI Commerce Agent.
 
 ### INPUT
+**Worker:** {worker_type}
 **Task:** "{task_desc}"
 **Worker Output:** "{worker_result}"
 {evidence_block}
 
-### AUDIT CRITERIA
+{worker_audit_rules}
+
+{tool_validation_block}
+
+### UNIVERSAL AUDIT CRITERIA
 A. **Accuracy**: Does output match evidence? Reject if prices/facts contradict evidence.
 B. **Completeness**: Did worker attempt to address the task?
 C. **Safety**: No JSON/code traces? Polite response?
 
-### CRITICAL ANTI-HALLUCINATION RULES ⚠️
-1. **NO TOOL EVIDENCE = REJECT** for product recommendations
-   - If worker mentions product names or prices WITHOUT tool evidence → **REJECT**
-   - Worker MUST have called search_products first
-   - Only greetings and general responses can skip tools
+### TOOL EVIDENCE RULES
+1. **Check success indicators** for each tool called
+2. **If tool failed**, the recommended correction is in the tool reference above
+3. **Related categories are acceptable**: cream ≈ lotion ≈ moisturizer ≈ body milk (same brand = OK)
+4. **Visual search matches** (detect_product_from_image) are VALID evidence sources
 
-2. **CATEGORY FLEXIBILITY** (IMPORTANT - avoid over-rejection):
-   - If user asks for "X cream" and search returns "X lotion" → **APPROVE** (same brand, similar purpose)
-   - Related product categories are acceptable: cream ≈ lotion ≈ moisturizer ≈ butter ≈ body milk
-   - Face products when asked for body products (same brand) → **APPROVE with note**
-   - Only REJECT if products are completely unrelated (e.g., asked for lipstick, got cleanser)
-   - The goal is HELPFULNESS, not pedantic matching
-
-3. **PRODUCT CLAIMS NEED PROOF**:
-   - Every product name in output MUST appear in tool evidence
-   - Every price ₦X,XXX MUST come from tool evidence
-   - If output has products but no evidence block → **REJECT**
-
-4. **PURCHASE CONFIRMATION EXCEPTIONS** (APPROVE without fresh tool evidence):
-   - If task mentions "Process order" or "purchase confirmation" → Product was already verified
-   - Requesting delivery details is VALID for payment flow
-   - "To complete your order, please provide..." → APPROVE
-   - Delivery fee calculations from calculate_delivery_fee → APPROVE
-   - Payment link generation → APPROVE
-
-5. **Valid exceptions** (can APPROVE without tool evidence):
-   - Simple greetings/farewells
-   - "I'll check for you" type responses
-   - Error acknowledgments
-   - **Delivery detail requests** ("Please provide your name/address/phone")
-   - **Payment flow messages** (requesting info to generate payment link)
+### VALID EXCEPTIONS (can APPROVE without fresh tool evidence)
+- Simple greetings/farewells
+- "I'll check for you" type responses
+- Error acknowledgments
+- Delivery detail requests ("Please provide your name/address/phone")
+- Payment flow messages (requesting info to generate payment link)
+- Support ticket confirmations
+- Escalation confirmations ("Manager will contact you")
+- **Non-skincare apologetic responses** (e.g., "we only handle skincare through this channel")
+- **Alternative suggestions that appear in tool output** (not hallucination if from tool results)
+- **Order confirmations** based on prior order state
 
 ### OUTPUT (JSON ONLY)
-{{"verdict": "APPROVE" | "REJECT", "critique": "Reason if REJECT", "correction": "Optional fix"}}
+{{"verdict": "APPROVE" | "REJECT", "critique": "Reason if REJECT", "correction": "Specific fix based on tool failure modes"}}
 
-**Rules:**
+**Critical:**
+- Use tool failure modes above to provide ACCURATE corrections
 - "No active task" → REJECT
-- Error traces → REJECT
-- Product names without tool evidence (in PRODUCT SEARCH tasks only) → REJECT
-- Delivery detail requests in payment flow → **APPROVE**
-- Matches evidence OR offers valid alternatives → APPROVE
+- Error traces in output → REJECT
+- Matches evidence OR is a valid exception → APPROVE
 """
 
         response = await llm.ainvoke([SystemMessage(content=system_prompt)])
         content = response.content
-        logger.info(f"Reviewer Output: {content}")
+        logger.info(f"Reviewer Output ({worker_type}): {content}")
         
         try:
             result_json = json.loads(content)
         except json.JSONDecodeError:
             result_json = {"verdict": "APPROVE" if "APPROVE" in content else "REJECT", 
-                          "critique": "Invalid JSON format from worker."}
+                          "critique": "Invalid JSON format from reviewer."}
 
         verdict = result_json.get("verdict", "REJECT").upper()
         critique = result_json.get("critique", "")
+        correction = result_json.get("correction", "")
+        
+        # Include correction in critique for actionable feedback
+        if correction and critique:
+            critique = f"{critique} | Suggestion: {correction}"
         
         if not task_statuses:
             task_statuses = {}
