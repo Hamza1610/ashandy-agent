@@ -205,7 +205,8 @@ async def run_auto_migration():
                 # Log specific errors but verify if it's critical
                 err_msg = str(e).lower()
                 if "already exists" in err_msg:
-                    logger.debug(f"Skipping existing entity: {err_msg.split('\\n')[0]}")
+                    # logger.debug(f"Skipping existing entity: {err_msg.split('\\n')[0]}")
+                    logger.debug("Skipping existing entity: {}".format(err_msg.split('\n')[0]))
                 elif "relation" in err_msg and "does not exist" in err_msg:
                     # Critical dependency missing?
                     logger.error(f"❌ Dependency Error in migration step {i+1}: {e}")

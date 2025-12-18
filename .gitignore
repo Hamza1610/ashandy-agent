@@ -20,3 +20,4 @@ venv/
 .vscode/
 *.sh
 *.pem
+*.env

@@ -42,37 +42,48 @@ class ConversationSummaryService:
             # Short conversation, no summarization needed
             return messages
         
-        # Get current count and summary from Redis
+        # Get current count and summary from Redis (Fail-Safe)
         current_count = len(messages)
         cache_key = f"conv_summary:{session_id}"
         
+        cached_count = 0
+        cached_summary = ""
+        
         try:
+            # We protect this read. If Redis hangs/fails, we just proceed without summary.
             cached_data = await cache_service.get_json(cache_key)
-            cached_count = cached_data.get("count", 0) if cached_data else 0
-            cached_summary = cached_data.get("summary", "") if cached_data else ""
+            if cached_data:
+                cached_count = cached_data.get("count", 0)
+                cached_summary = cached_data.get("summary", "")
         except Exception as e:
-            logger.warning(f"Redis read error for summary: {e}")
-            cached_count = 0
-            cached_summary = ""
+            logger.warning(f"Summary Service: Redis read failed (ignoring): {e}")
         
         # Check if we need to update summary
         messages_since_summary = current_count - cached_count
-        if messages_since_summary >= self.SUMMARIZE_EVERY or not cached_summary:
+        
+        # Only try to summarize if we have a valid previous state or enough new messages
+        # If Redis failed (count=0, summary=""), we might re-summarize everything, which is safe but slower.
+        if messages_since_summary >= self.SUMMARIZE_EVERY:
             # Summarize all messages except the last 3
             messages_to_summarize = messages[:-self.RECENT_MESSAGES]
-            new_summary = await self._summarize_messages(messages_to_summarize, cached_summary)
             
-            # Save to Redis
+            # Protected Summarization Call
             try:
-                await cache_service.set_json(cache_key, {
-                    "summary": new_summary,
-                    "count": current_count
-                }, ttl=self.SUMMARY_TTL)
+                new_summary = await self._summarize_messages(messages_to_summarize, cached_summary)
+                
+                # Save to Redis (Fail-Safe)
+                try:
+                    await cache_service.set_json(cache_key, {
+                        "summary": new_summary,
+                        "count": current_count
+                    }, ttl=self.SUMMARY_TTL)
+                    logger.info(f"Updated summary for {session_id}")
+                except Exception as e:
+                    logger.warning(f"Summary Service: Redis write failed (ignoring): {e}")
+                
+                cached_summary = new_summary
             except Exception as e:
-                logger.warning(f"Redis write error for summary: {e}")
-            
-            cached_summary = new_summary
-            logger.info(f"Updated summary for {session_id}: {len(new_summary)} chars")
+                logger.error(f"Summary Service: Generation failed (skipping): {e}")
         
         # Build efficient context
         context = []

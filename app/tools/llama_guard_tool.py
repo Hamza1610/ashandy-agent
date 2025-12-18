@@ -18,7 +18,7 @@ ONLY cosmetics/store-related queries are "safe". EVERYTHING ELSE is "unsafe".
 - Makeup products (lipstick, foundation, mascara)
 - Orders, payments, delivery tracking
 - Shop location, hours, contact info
-- Greetings (hi, hello, thanks)
+- Greetings in general like (hi, hello, thanks, how are you doing)
 
 ### UNSAFE (block these)
 - **OFF-TOPIC**: Football, politics, weather, news, coding, recipes, celebrities, history, science

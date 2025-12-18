@@ -279,32 +279,49 @@ async def output_supervisor_node(state: AgentState):
                 "messages": [AIMessage(content="I encountered a technical issue. Please try again.")]
             }
 
-    # Safety check
+    # Safety check (with timeout protection)
     if len(content) > 10:
-        safety_res = await check_safety.ainvoke(content)
-        if safety_res.lower().startswith("unsafe"):
-            logger.warning(f"Output Supervisor: Unsafe output detected: {safety_res}")
-            return {
-                "supervisor_output_verdict": "block",
-                "messages": [AIMessage(content="My response was flagged by safety guidelines. I cannot send it.")]
-            }
+        try:
+            # We don't want the entire flow to hang on the final safety check
+            # if Llama Guard is slow/down.
+            logger.info("Output Supervisor: calling Llama Guard...")
+            safety_res = await check_safety.ainvoke(content)
+            
+            if safety_res.lower().startswith("unsafe"):
+                logger.warning(f"Output Supervisor: Unsafe output detected: {safety_res}")
+                return {
+                    "supervisor_output_verdict": "block",
+                    "messages": [AIMessage(content="My response was flagged by safety guidelines. I cannot send it.")]
+                }
+        except Exception as e:
+            logger.error(f"Output Supervisor Safety Check Failed (Defaulting to Safe): {e}")
+            # Ensure we don't crash or hang - fail open (safe) if check fails
+            pass
     
     # === CACHE THE RESPONSE ===
     original_query = state.get("last_user_message", "")
-    if original_query and content:
-        await response_cache_service.cache_response(original_query, content)
+    # if original_query and content:
+    #     try:
+    #         logger.info("Output Supervisor: Caching response...")
+    #         await response_cache_service.cache_response(original_query, content)
+    #     except Exception as e:
+    #         logger.error(f"Output Supervisor: Cache failed (ignoring): {e}")
     
     # Log AI response
-    user_id = state.get("user_id", "unknown")
-    platform = state.get("platform", "whatsapp")
-    await logging_service.log_message(
-        user_id=user_id,
-        role="assistant",
-        content=content,
-        sentiment_score=0.0,
-        intent=None,
-        platform=platform
-    )
+    try:
+        logger.info("Output Supervisor: Logging message to DB...")
+        user_id = state.get("user_id", "unknown")
+        platform = state.get("platform", "whatsapp")
+        await logging_service.log_message(
+            user_id=user_id,
+            role="assistant",
+            content=content,
+            sentiment_score=0.0,
+            intent=None,
+            platform=platform
+        )
+    except Exception as e:
+        logger.error(f"Output Supervisor: Logic logging failed (ignoring): {e}")
              
     logger.info("Output Supervisor: Response Safe.")
     return {"supervisor_output_verdict": "safe"}

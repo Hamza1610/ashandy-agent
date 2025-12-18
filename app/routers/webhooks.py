@@ -1,7 +1,7 @@
 """
 Webhooks Router: Handles incoming messages from WhatsApp, Instagram, and Paystack.
 """
-from fastapi import APIRouter, Request, HTTPException, Header, Form, Response
+from fastapi import APIRouter, Request, HTTPException, Header, Form, Response, BackgroundTasks
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.utils.config import settings
@@ -195,16 +195,13 @@ async def receive_whatsapp_webhook(request: Request, payload: WhatsAppWebhookPay
 
 
 @router.post("/twilio/whatsapp")
-async def receive_twilio_webhook(request: Request):
+async def receive_twilio_webhook(request: Request, background_tasks: BackgroundTasks):
     """
-    Process incoming WhatsApp messages via Twilio.
-    - Uses request.form() for standard Twilio parsing.
-    - Supports Image Analysis (Parity with Meta webhook).
-    - Returns TwiML XML response.
+    Process incoming WhatsApp messages via Twilio (Async Pattern).
+    - Returns 200 OK immediately to satisfy Twilio 15s timeout.
+    - Processes agent logic in background.
+    - Sends reply via Twilio API.
     """
-    from app.graphs.main_graph import app as agent_app
-    from langchain_core.messages import HumanMessage
-    
     try:
         # 1. Parse Form Data
         form_data = await request.form()
@@ -216,40 +213,68 @@ async def receive_twilio_webhook(request: Request):
         user_id = from_number.replace("whatsapp:", "") if from_number.startswith("whatsapp:") else from_number
         
         image_url = None
-        user_message_content = body
-        visual_analysis = None
-        
-        # 2. Handle Images (Parity with Meta Logic)
+        # Extract Image URL if present
         if num_media > 0:
-            # Twilio sends MediaUrl0, MediaUrl1, ...
-            # We take the first image found
             for i in range(num_media):
                 content_type = form_data.get(f"MediaContentType{i}", "")
                 if "image" in content_type:
                     image_url = form_data.get(f"MediaUrl{i}")
                     break
-            
-            if image_url:
-                # PRE-ANALYZE IMAGE for product detection
-                try:
-                    from app.tools.visual_tools import detect_product_from_image
-                    logger.info(f"Pre-analyzing Twilio image: {image_url[:50]}...")
-                    analysis = await detect_product_from_image.ainvoke(image_url)
-                    if analysis and not analysis.get("error"):
-                        visual_analysis = analysis
-                        detected_text = analysis.get("detected_text", "")
-                        product_type = analysis.get("product_type", "")
-                        matched = analysis.get("matched_products", "")
-                        
-                        if detected_text or matched:
-                            user_message_content += f" [IMAGE DETECTED: {detected_text or product_type}. Matches: {matched}]"
-                            logger.info(f"Image pre-analysis: {detected_text}, matched: {matched}")
-                except Exception as e:
-                    logger.error(f"Image pre-analysis failed: {e}")
-
-        logger.info(f"Twilio Webhook: User {user_id} says '{user_message_content[:50]}...'")
         
-        # 3. Construct Message
+        # 2. Spawn Background Task
+        # We pass basic data to background task. 
+        # The background task handles Image Analysis -> Agent -> Reply.
+        background_tasks.add_task(
+            process_twilio_message_background,
+            user_id=user_id,
+            body=body,
+            image_url=image_url
+        )
+        
+        logger.info(f"Twilio Webhook: Queueing background task for {user_id}")
+        
+        # 3. Return Immediate Empty TwiML (Ack)
+        # This tells Twilio "We got it, hang up now".
+        return Response(content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>', media_type="application/xml")
+
+    except Exception as e:
+        logger.error(f"Twilio dispatch error: {e}")
+        return Response(content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>', media_type="application/xml")
+
+
+async def process_twilio_message_background(user_id: str, body: str, image_url: str = None):
+    """Background task to run Agent logic and send reply via Twilio API."""
+    from app.graphs.main_graph import app as agent_app
+    from langchain_core.messages import HumanMessage
+    from app.services.twilio_service import twilio_service
+    
+    try:
+        logger.info(f"🔁 Background Task Started for {user_id}")
+        
+        user_message_content = body or ""
+        visual_analysis = None
+        
+        # 1. Image Analysis (Parity with Meta Logic)
+        if image_url:
+            try:
+                from app.tools.visual_tools import detect_product_from_image
+                logger.info(f"Pre-analyzing Twilio image: {image_url[:50]}...")
+                analysis = await detect_product_from_image.ainvoke(image_url)
+                if analysis and not analysis.get("error"):
+                    visual_analysis = analysis
+                    detected_text = analysis.get("detected_text", "")
+                    product_type = analysis.get("product_type", "")
+                    matched = analysis.get("matched_products", "")
+                    
+                    if detected_text or matched:
+                        user_message_content += f" [IMAGE DETECTED: {detected_text or product_type}. Matches: {matched}]"
+                        logger.info(f"Image pre-analysis: {detected_text}, matched: {matched}")
+            except Exception as e:
+                logger.error(f"Image pre-analysis failed: {e}")
+
+        logger.info(f"Twilio Background: User {user_id} says '{user_message_content[:50]}...'")
+        
+        # 2. Construct Message
         human_msg = HumanMessage(content=user_message_content)
         if image_url:
             human_msg.additional_kwargs["image_url"] = image_url
@@ -270,7 +295,7 @@ async def receive_twilio_webhook(request: Request):
             "plan": []
         }
         
-        # 4. Invoke Agent
+        # 3. Invoke Agent
         final_state = await agent_app.ainvoke(
             input_state,
             config={
@@ -290,7 +315,7 @@ async def receive_twilio_webhook(request: Request):
                 last_reply = msg.content.strip()
                 break
                 
-        # 5. Save memory
+        # 4. Save memory
         if user_message_content and last_reply:
             try:
                 from app.tools.vector_tools import save_user_interaction
@@ -302,29 +327,16 @@ async def receive_twilio_webhook(request: Request):
             except Exception as e:
                 logger.error(f"Memory save error: {e}")
                 
-        # 6. Return TwiML Response
-        # We assume agent latency < 15s. If last_reply exists, we send it.
-        # If no reply, we send empty response (200 OK).
-        
-        twiml_content = ""
+        # 5. Send Async Reply Via Twilio API
         if last_reply:
-            # Escape XML special characters if needed, but simple string usually fine.
-            # Ideally use a library, but f-string is lightweight for this.
-            clean_reply = last_reply.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            twiml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Message>{clean_reply}</Message>
-</Response>"""
+            logger.info(f"📤 Twilio Background: Sending reply to {user_id}")
+            await twilio_service.send_whatsapp_text(user_id, last_reply)
         else:
-            twiml_content = """<?xml version="1.0" encoding="UTF-8"?>
-<Response></Response>"""
-
-        return Response(content=twiml_content, media_type="application/xml")
+            logger.warning(f"Twilio Background: No reply generated for {user_id}")
 
     except Exception as e:
-        logger.error(f"Twilio processing error: {e}")
-        # Return empty TwiML on error to satisfy Twilio
-        return Response(content='<?xml version="1.0" encoding="UTF-8"?><Response></Response>', media_type="application/xml")
+        logger.error(f"Twilio Background Error: {e}", exc_info=True)
+
 
 
 @router.get("/instagram")
