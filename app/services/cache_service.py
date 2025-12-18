@@ -31,7 +31,13 @@ class CacheService:
                 host_part = url[len(prefix):]
                 url = f"{prefix}{self.user or 'default'}:{self.pwd or ''}@{host_part}"
             
-            self.redis = redis.from_url(url, encoding="utf-8", decode_responses=True)
+            self.redis = redis.from_url(
+                url, 
+                encoding="utf-8", 
+                decode_responses=True,
+                socket_timeout=5.0,  # Prevent indefinite hangs
+                socket_connect_timeout=5.0
+            )
 
     async def get(self, key: str):
         await self.connect()
