@@ -44,7 +44,7 @@
 | Metric | Value |
 |--------|-------|
 | Total Agents | 8 |
-| Total Services | 19 |
+| Total Services | 20 |
 | Total Tools | 26 (worker-bound) |
 | MCP Servers | 4 |
 | Overall Score | 88.75/100 |
@@ -660,7 +660,7 @@ pending → in_progress → (reviewing ↔ in_progress) → approved/failed
 | **Response Cache Warming** | Instant FAQ responses | Startup preload |
 | **LLM Failover** | 99.9% availability | 3-provider chain |
 | **Circuit Breaker** | Graceful degradation | 60s cooldown |
-| **Graph Checkpointer** | Conversation continuity | MemorySaver for state persistence |
+| **Graph Checkpointer** | Conversation continuity | Redis Stack → Postgres → MemorySaver fallback chain |
 
 ### 9.2 Reliability Optimizations
 
@@ -807,10 +807,14 @@ ProductionConfig    # Optimized for production
 uvicorn app.main:app --reload --port 8000
 ```
 
-### 13.2 Docker
+### 13.2 Docker (Local Development)
 
 ```bash
-docker-compose -f deployment/docker-compose.yml up
+# Start Postgres + Redis Stack
+docker-compose up -d
+
+# Then start the app
+uvicorn app.main:app --reload
 ```
 
 ### 13.3 Render.com

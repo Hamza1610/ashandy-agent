@@ -33,19 +33,24 @@ def validate_delivery_details(details: dict) -> dict:
     """Validate delivery details. Returns {valid, missing, warnings, details}."""
     missing, warnings = [], []
     
-    if not details.get('name', '').strip() or len(details.get('name', '')) < 3:
+    # Fix: Handle None values safely
+    name = details.get('name') or ''
+    if not name.strip() or len(name) < 3:
         missing.append('full name')
     
-    normalized_phone = validate_nigerian_phone(details.get('phone', ''))
+    normalized_phone = validate_nigerian_phone(details.get('phone'))
     if not normalized_phone:
         missing.append('phone number')
     else:
         details['phone'] = normalized_phone
     
-    if not details.get('address', '').strip() or len(details.get('address', '')) < 5:
+    # Fix: Handle None address safely
+    address = details.get('address') or ''
+    if not address.strip() or len(address) < 5:
         missing.append('delivery address')
     
-    if not details.get('email') or '@' not in details.get('email', ''):
+    email = details.get('email')
+    if not email or '@' not in email:
         details['email'] = DEFAULT_EMAIL
         warnings.append(f"Using default email: {DEFAULT_EMAIL}")
     
@@ -56,15 +61,13 @@ def validate_delivery_details(details: dict) -> dict:
 async def request_delivery_details() -> str:
     """Request delivery details from customer."""
     logger.info("Requesting delivery details")
-    return """To complete your order, please provide:
+    return """To complete your order, please provide details (one by one is okay):
 
-📝 **Full Name:**
-📞 **Phone Number:**
-📍 **Delivery Address:**
-🏙️ **City:**
-📧 **Email (optional):**
+📝 **Name**
+📞 **Phone**
+📍 **Address** (include city)
 
-Example: "John Doe, 08012345678, 15 Admiralty Way Lekki, Lagos"
+Example: "My name is John Doe", "08012345678", or "15 Admiralty Way, Lekki"
 """
 
 
@@ -87,21 +90,31 @@ async def validate_and_extract_delivery(message: str) -> dict:
     if email_match:
         result['email'] = email_match.group(0)
     
-    # Extract address
-    clean_msg = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '', message)
-    clean_msg = re.sub(r'\+?234?\d{10,11}', '', clean_msg)
-    clean_msg = re.sub(r'0[789]\d{9}', '', clean_msg)
+    # Extract potential name/address using simple heuristics
+    # Remove phone and email to see what's left
+    clean_msg = message
+    if result['phone']:
+        clean_msg = clean_msg.replace(result['phone'], '')
+    if result.get('email'):
+        clean_msg = clean_msg.replace(result['email'], '')
     
-    parts = [p.strip() for p in clean_msg.split(',') if p.strip()]
-    if len(parts) >= 2:
-        if len(parts[0]) > 2 and not re.search(r'\d', parts[0]):
-            result['name'] = parts[0]
-        if len(parts) >= 3:
-            result['address'] = ', '.join(parts[1:-1])
-            result['city'] = parts[-1]
-        elif len(parts) == 2:
-            result['address'] = parts[1]
+    # Keyword removal
+    clean_msg = re.sub(r'(my name is|i am|this is|call me|deliver to|address is)', '', clean_msg, flags=re.IGNORECASE)
     
+    # Split by commas or newlines
+    parts = [p.strip() for p in re.split(r'[,\n]', clean_msg) if p.strip()]
+    
+    if len(parts) >= 1:
+        # Heuristic: If it looks like a name (2-3 words, no numbers), assume name if missing
+        first_part = parts[0]
+        if not result['name'] and 3 < len(first_part) < 30 and not re.search(r'\d', first_part):
+             result['name'] = first_part
+             # If there are more parts, assume address
+             if len(parts) > 1:
+                 result['address'] = ', '.join(parts[1:])
+        elif not result['address']:
+             result['address'] = ', '.join(parts)
+
     validation = validate_delivery_details(result)
     return {'extracted': result, 'valid': validation['valid'], 'missing': validation['missing'], 'warnings': validation['warnings']}
 

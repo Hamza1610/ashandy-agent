@@ -15,7 +15,7 @@
 | :--- | :---: | :--- |
 | **Total Autonomous Agents** | **8** | Supervisor, Planner, 4 Workers, Reviewer, Conflict Resolver |
 | **Tool Knowledge Registry** | **26** | All tools with validation rules |
-| **Micro-Services** | **19** | Business logic modules |
+| **Micro-Services** | **20** | Including checkpointer_service for state persistence |
 | **Tool Servers (MCP)** | **4** | POS, Payment, Knowledge, Logistics |
 | **Safety Layers** | **8** | Including Llama Guard, Rate Limits, & Reviewers |
 
@@ -97,6 +97,7 @@ graph TB
 
 ## ⚡ Performance Optimizations
 * **Semantic Caching:** Redis hash-based lookup reduces LLM calls by **50%**.
+* **State Persistence:** Checkpointer service with Redis Stack → Postgres → Memory fallback chain.
 * **LLM Failover:** Primary: **Meta Llama 4** → Fallback: **OpenRouter**.
 * **Circuit Breakers:** Graceful degradation if external APIs (Paystack/Meta) fail.
 
@@ -107,9 +108,9 @@ graph TB
 * **Backend:** Python FastAPI
 * **LLM Inference:** Meta Llama 4 (70B/8B)
 * **Database:**
-* **Vector:** Pinecone (Semantic Memory)
-* **Cache:** Redis (State & Semantics)
-* **Relational:** PostgreSQL (Orders & Logs)
+  * **Vector:** Pinecone (Semantic Memory)
+  * **Cache:** Redis Stack (State Persistence + RediSearch)
+  * **Relational:** PostgreSQL (Orders & Logs)
 
 
 * **Integrations:** Meta Graph API, Paystack, PHPPOS, Twilio, TomTom
@@ -138,14 +139,20 @@ ashandy-agent/
 ```
 
 ## ⚡ Quick Start
-### 1. Start the Backend
+
+### 1. Start Infrastructure (Docker)
+```bash
+# Start Postgres + Redis Stack
+docker-compose up -d
+```
+
+### 2. Start the Backend
 ```bash
 # Activate environment
 conda activate meta_ai
 
 # Run FastAPI with Hot Reload
 uvicorn app.main:app --reload --port 8000
-
 ```
 
 ### 2. Start MCP Servers*Run these in separate terminals:*

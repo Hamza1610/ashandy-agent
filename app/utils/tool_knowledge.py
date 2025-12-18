@@ -26,9 +26,9 @@ TOOL_KNOWLEDGE: Dict[str, Dict[str, Any]] = {
             "Empty response": "Check query spelling or try alternative product names"
         },
         "validation_rules": [
-            "Product names in worker response MUST appear in tool output",
-            "Prices mentioned MUST match tool evidence exactly",
-            "Related categories (cream ≈ lotion ≈ moisturizer) are acceptable alternatives"
+            "Product names should reasonably match tool output (fuzzy matching allowed)",
+            "Prices must match numerically (allow formatting like 18k = 18000 = 18,000)",
+            "Worker MAY suggest adjacent relevant products found in the database results"
         ]
     },
     

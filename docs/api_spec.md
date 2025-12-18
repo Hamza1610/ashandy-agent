@@ -108,3 +108,18 @@
 | 403 | Forbidden (verification failed) |
 | 429 | Rate limit exceeded |
 | 500 | Internal server error |
+
+---
+
+## 3. Testing (Development Only)
+
+### POST /api/test/message
+- **Purpose**: Test agent logic without WhatsApp/Instagram infrastructure
+- **Body**: `{"message": "Hello", "user_id": "test_1", "platform": "whatsapp"}`
+- **Response**: Agent output + internal state debug info
+- **Notes**: Bypasses webhook signature validation
+
+### POST /api/test/image
+- **Purpose**: Test image processing pipeline
+- **Body**: `UploadFile` (image)
+- **Response**: Extracted product details

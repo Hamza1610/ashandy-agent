@@ -13,7 +13,6 @@ from app.agents.support_worker import support_worker_node
 from app.agents.reviewer_agent import reviewer_agent_node
 from app.agents.conflict_resolver_agent import conflict_resolver_node
 from langchain_core.messages import AIMessage
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from app.utils.config import settings
 from functools import partial
 import logging
@@ -176,17 +175,62 @@ workflow.add_conditional_edges(
 )
 
 # Add checkpointer for conversation state persistence
-# NOTE: Async checkpointers (Redis, Postgres) are initialized in main.py lifespan
-# This module uses MemorySaver as initial fallback, main.py may override with persistent checkpointer
+# Redis for persistent state across restarts, MemorySaver as fallback
 import logging
 from langgraph.checkpoint.memory import MemorySaver
 
 logger = logging.getLogger(__name__)
 
-# Use MemorySaver initially - main.py lifespan will upgrade to persistent checkpointer if available
-checkpointer = MemorySaver()
-logger.info("Graph compiled with MemorySaver (may be upgraded to persistent checkpointer during startup)")
+def _get_checkpointer():
+    """Initialize checkpointer: Redis (persistent) -> MemorySaver (fallback)."""
+    # 1. Try Redis (Preferred for speed)
+    try:
+        from langgraph.checkpoint.redis.aio import AsyncRedisSaver
+        from app.utils.config import settings
+        
+        redis_url = getattr(settings, 'REDIS_URL', None)
+        if not redis_url:
+            # Construct from host/port for local dev
+            redis_host = getattr(settings, 'REDIS_HOST', 'localhost')
+            redis_port = getattr(settings, 'REDIS_PORT', 6379)
+            redis_url = f"redis://{redis_host}:{redis_port}"
 
+        if redis_url:
+            # Use direct constructor for async support
+            checkpointer = AsyncRedisSaver(redis_url=redis_url)
+            logger.info(f"Using AsyncRedisSaver: {redis_url} (persistent)")
+            return checkpointer
+    except Exception as e:
+        logger.warning(f"Redis checkpointer failed/skipped: {e}")
+
+    # 2. Try Postgres (Production Fallback - Durable)
+    try:
+        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+        from app.utils.config import settings
+        
+        # Ensure we check DATABASE_URL
+        db_url = getattr(settings, 'DATABASE_URL', None)
+        if db_url:
+            # Ensure proper async driver
+            if db_url.startswith("postgresql://"):
+                db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
+            
+            # AsyncPostgresSaver(conn_string=...)
+            checkpointer = AsyncPostgresSaver(conn_string=db_url)
+            logger.info(f"Using AsyncPostgresSaver: {db_url.split('@')[-1]} (persistent fallback)")
+            return checkpointer
+            
+    except Exception as e:
+        logger.warning(f"Postgres checkpointer failed/skipped: {e}")
+    
+    # 3. Memory (Local/Dev only - Volatile!)
+    logger.info("Using MemorySaver (volatile) - state will not persist across restarts")
+    return MemorySaver()
+
+checkpointer = _get_checkpointer()
 app = workflow.compile(checkpointer=checkpointer)
+
+
+
 
 
