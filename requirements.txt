@@ -33,5 +33,4 @@ apscheduler
 aiosmtplib
 sentence-transformers
 slowapi
-psycopg2
 langgraph-checkpoint-redis
