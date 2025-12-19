@@ -77,11 +77,6 @@ try:
 except ImportError:
     MCP_SERVICE_AVAILABLE = False
 
-try:
-    from app.services.checkpointer_service import checkpointer_service
-    CHECKPOINTER_SERVICE_AVAILABLE = True
-except ImportError:
-    CHECKPOINTER_SERVICE_AVAILABLE = False
 
 
 # -------------------------------------------------
@@ -156,24 +151,9 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"Cache warming failed: {e}")
 
         # -------------------------
-        # LangGraph Checkpointer
+        # LangGraph Checkpointer - initialized in main_graph.py
         # -------------------------
-        if CHECKPOINTER_SERVICE_AVAILABLE:
-            try:
-                persistent = await checkpointer_service.initialize()
-                backend = checkpointer_service.backend
-                if persistent:
-                    logger.info(f"✅ Checkpointer initialized: {backend}")
-                else:
-                    logger.info(f"Using {backend} checkpointer (volatile)")
-                
-                # Recompile graph with the new checkpointer
-                from app.graphs import main_graph
-                main_graph.app = main_graph.workflow.compile(
-                    checkpointer=checkpointer_service.get_checkpointer()
-                )
-            except Exception as e:
-                logger.warning(f"Checkpointer initialization failed: {e}")
+        logger.info("LangGraph checkpointer initialized (see main_graph.py logs for type)")
             
         # -------------------------
         # Mark Ready
@@ -212,13 +192,6 @@ async def lifespan(app: FastAPI):
             logger.info("Checkpointer context cleaned up")
         except Exception as e:
             logger.warning(f"Checkpointer cleanup error: {e}")
-    
-    # Cleanup checkpointer service
-    if CHECKPOINTER_SERVICE_AVAILABLE:
-        try:
-            await checkpointer_service.cleanup()
-        except Exception as e:
-            logger.warning(f"Checkpointer service cleanup error: {e}")
 
     logger.info(f"Shut down {settings.APP_NAME}")
 
@@ -259,11 +232,14 @@ app.include_router(health.router, tags=["Health"])
 app.include_router(webhooks.router, prefix="/webhook", tags=["Webhooks"])
 
 if TEST_ROUTER_AVAILABLE:
+    logger.info("Mounting test graph router at /api/test")
     app.include_router(
         test_graph_router.router,
         prefix="/api",
         tags=["Graph Testing"],
     )
+else:
+    logger.warning("Test router NOT available (ImportError?)")
 
 if IMAGE_TEST_AVAILABLE:
     app.include_router(

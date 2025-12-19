@@ -21,7 +21,8 @@ async def sales_worker_node(state: AgentState):
         user_id = state.get("user_id")
         messages = state.get("messages", [])
         plan = state.get("plan", [])
-        task_statuses = state.get("task_statuses", {})
+        task_statuses = state.get("task_statuses") or {}
+        product_recommendations = []  # Initialize safely
         
         # Find active task
         current_step = None
@@ -47,7 +48,7 @@ async def sales_worker_node(state: AgentState):
         # Visual context
         visual_info_block = ""
         image_url = state.get("image_url") 
-        if not image_url and messages:
+        if not image_url and messages and len(messages) > 0:
             image_url = messages[-1].additional_kwargs.get("image_url")
         
         if image_url:
@@ -276,6 +277,19 @@ Transform tool data into a sales pitch, then ask a closing question!
                 if item["tool"] != "save_user_interaction":
                     tool_outputs_text += f"\n{item['output']}"
             
+            # ========== EXTRACT PRODUCT RECOMMENDATIONS FIRST ==========
+            product_recommendations = []
+            for evidence in tool_evidence:
+                if evidence.get("tool") in ["search_products", "search_products_tool"]:
+                    output = evidence.get("output", "")
+                    # Parse product names and prices from search results
+                    import re
+                    matches = re.findall(r'Name:\s*([^\n]+?)(?:\s*Price|\s*₦)', str(output))
+                    prices = re.findall(r'(?:Price|₦)\s*([\d,]+)', str(output))
+                    for i, name in enumerate(matches[:5]):  # Top 5 products
+                        price = float(prices[i].replace(',', '')) if i < len(prices) else 0
+                        product_recommendations.append({"name": name.strip(), "price": price})
+
             if tool_outputs_text.strip():
                 # Second LLM call to format tool output into sales pitch
                 formatting_prompt = f"""Format this product data into a friendly sales response.
@@ -301,10 +315,28 @@ BAD EXAMPLE (don't do this):
 "I'm Awéléwà, your friendly AI sales assistant! 💄 I found..."
 
 NOW FORMAT THE RESPONSE:"""
-                format_response = await get_llm(model_type="fast", temperature=0.5).ainvoke(
-                    [HumanMessage(content=formatting_prompt)]
-                )
-                final_result = format_response.content
+                try:
+                    format_response = await get_llm(model_type="fast", temperature=0.5).ainvoke(
+                        [HumanMessage(content=formatting_prompt)]
+                    )
+                    if format_response.content and format_response.content.strip():
+                        final_result = format_response.content
+                    else:
+                        raise ValueError("Empty LLM response")
+                except Exception as e:
+                    logger.warning(f"Formatting LLM failed: {e}. Using Template Fallback.")
+                    # TEMPLATE FALLBACK (High Quality)
+                    if product_recommendations and len(product_recommendations) > 0:
+                        best_product = product_recommendations[0]
+                        final_result = f"I found exactly what you need! ✨ The *{best_product['name']}* is available for ₦{best_product['price']:,.0f}. 💕 Shall I add it to your order?"
+                        if len(product_recommendations) > 1:
+                            final_result += f" (I also found {len(product_recommendations)-1} other options!)"
+                    else:
+                        # Handle case where search returned "No results" or unstructured text
+                        if "no results" in tool_outputs_text.lower() or "not found" in tool_outputs_text.lower():
+                            final_result = "I couldn't find that specific item right now. 😔 Could you check the spelling or describe it differently? I'd love to help you find an alternative! ✨"
+                        else:
+                            final_result = f"I found this information for you:\n{tool_outputs_text}\n(Does this help? ✨)"
             else:
                 # No tool output, use original response
                 final_result = response.content
@@ -320,19 +352,11 @@ NOW FORMAT THE RESPONSE:"""
         except Exception as e:
             logger.debug(f"Could not save to memory: {e}")
         
-        # ========== EXTRACT PRODUCT RECOMMENDATIONS ==========
-        product_recommendations = []
-        for evidence in tool_evidence:
-            if evidence.get("tool") == "search_products":
-                output = evidence.get("output", "")
-                # Parse product names and prices from search results
-                import re
-                matches = re.findall(r'Name:\s*([^\n]+?)(?:\s*Price|\s*₦)', str(output))
-                prices = re.findall(r'(?:Price|₦)\s*([\d,]+)', str(output))
-                for i, name in enumerate(matches[:5]):  # Top 5 products
-                    price = float(prices[i].replace(',', '')) if i < len(prices) else 0
-                    product_recommendations.append({"name": name.strip(), "price": price})
-        
+        # ========== FINAL SAFETY CHECK ==========
+        if not final_result or not final_result.strip():
+            logger.warning("Worker final_result is empty. Using fallback.")
+            final_result = "I've processed that for you! Is there anything else you need?"
+
         return {
             "worker_outputs": {task_id: final_result},
             "worker_tool_outputs": {task_id: tool_evidence},

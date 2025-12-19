@@ -36,6 +36,17 @@ async def test_graph_message(request: TestMessageRequest):
         from app.services.db_service import AsyncSessionLocal
         from sqlalchemy import text
         
+        # DEBUG: Check what checkpointer we really have
+        try:
+            cp = graph_app.checkpointer
+            logger.info(f"DEBUG: Checkpointer type: {type(cp).__name__}")
+            if hasattr(cp, 'get_next_version'):
+                logger.info("DEBUG: Checkpointer has get_next_version")
+            else:
+                logger.error("DEBUG: Checkpointer MISSING get_next_version (it is likely a context manager wrapper)")
+        except Exception as deb_e:
+            logger.error(f"DEBUG: Failed to inspect checkpointer: {deb_e}")
+
         logger.info(f"Test: {request.message}")
         
         # Load conversation history from database
@@ -70,14 +81,15 @@ async def test_graph_message(request: TestMessageRequest):
         try:
             from app.graphs.main_graph import app as graph_check
             config = {"configurable": {"thread_id": request.user_id}}
-            state_snapshot = graph_check.get_state(config)
+            # Use aget_state for AsyncRedisSaver compatibility
+            state_snapshot = await graph_check.aget_state(config)
             if state_snapshot and state_snapshot.values:
                 previous_order_intent = state_snapshot.values.get("order_intent", False)
                 previous_order = state_snapshot.values.get("order")
                 previous_order_data = state_snapshot.values.get("order_data")
                 logger.info(f"Loaded previous state: order_intent={previous_order_intent}, order={previous_order}")
         except Exception as e:
-            logger.debug(f"No previous state: {e}")
+            logger.debug(f"No previous state (or error loading it): {e}")
         
         input_state = {
             "messages": messages,
@@ -122,10 +134,17 @@ async def test_graph_message(request: TestMessageRequest):
         )
         
     except Exception as e:
-        logger.error(f"Test failed: {e}", exc_info=True)
+        import traceback
+        tb = traceback.format_exc()
+        logger.error(f"Test failed: {e}\n{tb}")
         return TestMessageResponse(
-            status="error", user_message=request.message, ai_response=None,
-            query_type=None, order_intent=None, messages_count=0, error=str(e)
+            status="error",
+            user_message=request.message,
+            ai_response=None,
+            query_type=None,
+            order_intent=None,
+            messages_count=0,
+            error=f"{str(e)}\n\nTraceback:\n{tb}"
         )
 
 
