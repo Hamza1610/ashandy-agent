@@ -946,9 +946,9 @@ docker-compose up -d
 uvicorn app.main:app --reload
 ```
 
-### 13.3 Render.com
+### 13.3 AWS.com
 
-Configured via `deployment/render.yaml`
+Configured via `AWS - EC2 Instance`
 
 ---
 
