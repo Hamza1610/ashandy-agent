@@ -49,12 +49,48 @@ def validate_delivery_details(details: dict) -> dict:
     if not address.strip() or len(address) < 5:
         missing.append('delivery address')
     
+    # ENHANCED: Proper email validation
     email = details.get('email')
-    if not email or '@' not in email:
+    if not email or not _validate_email_format(email):
         details['email'] = DEFAULT_EMAIL
-        warnings.append(f"Using default email: {DEFAULT_EMAIL}")
+        warnings.append(f"Invalid/missing email, using default: {DEFAULT_EMAIL}")
     
     return {'valid': len(missing) == 0, 'missing': missing, 'warnings': warnings, 'details': details}
+
+
+def _validate_email_format(email: str) -> bool:
+    """
+    Validate email format using RFC-compliant regex.
+    
+    Args:
+        email: Email address to validate
+    
+    Returns:
+        True if valid email format
+    """
+    if not email or len(email) > 255:
+        return False
+    
+    # RFC 5321 compliant email regex
+    EMAIL_REGEX = re.compile(
+        r'^[a-zA-Z0-9][a-zA-Z0-9._%+-]{0,63}@'  # Local part (max 64 chars)
+        r'[a-zA-Z0-9][a-zA-Z0-9.-]{0,253}\.'     # Domain
+        r'[a-zA-Z]{2,}$'                          # TLD (min 2 chars)
+    )
+    
+    if not EMAIL_REGEX.match(email):
+        return False
+    
+    # Additional checks
+    if email.count('@') != 1:
+        return False
+    
+    local, domain = email.split('@')
+    if len(local) > 64:
+        return False
+    
+    return True
+
 
 
 @tool

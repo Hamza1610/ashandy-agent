@@ -2,10 +2,14 @@
 Payment Worker: Handles delivery fee calculation and payment link generation.
 """
 from app.state.agent_state import AgentState
-from app.tools.payment_tools import generate_payment_link
+from app.tools.payment_tools import generate_payment_link, verify_payment
+from app.tools.fallback_payment_tools import get_manual_payment_instructions, check_api_health
 from app.tools.db_tools import create_order_record
 from app.tools.tomtom_tools import calculate_delivery_fee
 from app.tools.delivery_validation_tools import request_delivery_details, check_delivery_ready, DEFAULT_EMAIL
+from app.tools.order_management_tools import create_order_from_cart, get_cart_total, validate_order_ready
+from app.tools.order_finalization_tools import get_order_total_with_delivery, format_order_summary
+from app.tools.sms_tools import notify_manager
 from app.services.llm_service import get_llm
 from app.utils.brand_voice import WHATSAPP_FORMAT_RULES
 from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
@@ -39,8 +43,25 @@ async def payment_worker_node(state: AgentState):
         critique = state.get("reviewer_critique", "")
         context_str = f"⚠️ PREVIOUS ATTEMPT REJECTED: {critique}" if retry_count > 0 and critique else ""
 
-        # Order and delivery data
+        # ========== CART STATE ACCESS (PRIMARY SOURCE) ==========
+        ordered_items = state.get("ordered_items", [])
+        
+        # Order and delivery data (fallback to legacy keys for compatibility)
         order_data = state.get("order_data") or state.get("order") or {}
+        
+        # If we have cart items but no order_data, build it from cart
+        if ordered_items and not order_data.get("items"):
+            logger.info(f"💡 Building order_data from {len(ordered_items)} cart items")
+            order_creation = await create_order_from_cart.ainvoke({
+                "ordered_items": ordered_items,
+                "delivery_type": "delivery",  # Default, can be updated
+                "delivery_details": {}
+            })
+            if "error" not in order_creation:
+                order_data = order_creation
+            else:
+                logger.error(f"Failed to create order from cart: {order_creation['error']}")
+        
         delivery_details = order_data.get("delivery_details", {})
         
         # Try to extract delivery details from the last user message
@@ -101,16 +122,52 @@ async def payment_worker_node(state: AgentState):
                 customer_email = check_result.get("email", DEFAULT_EMAIL)
                 delivery_ready_msg = "✅ Delivery details validated."
 
-        # Tools and model
-        tools = [calculate_delivery_fee, generate_payment_link, create_order_record]
+        # Tools and model - Complete suite with error recovery & delivery integration
+        tools = [
+            calculate_delivery_fee, 
+            generate_payment_link, 
+            create_order_record, 
+            verify_payment,
+            create_order_from_cart,
+            get_cart_total,
+            validate_order_ready,
+            request_delivery_details,
+            get_order_total_with_delivery,
+            format_order_summary,
+            get_manual_payment_instructions,
+            check_api_health
+        ]
         llm = get_llm(model_type="fast", temperature=0.0).bind_tools(tools)
         
         system_prompt = f"""You are the Payment & Logistics Manager for Ashandy Cosmetics.
 
-**Tools:**
+**Available Tools:**
+
+*Order Summary & Totals:*
+- `get_order_total_with_delivery(ordered_items, delivery_location, delivery_type)`: **USE THIS for checkout** - Shows complete breakdown (cart + delivery)
+- `get_cart_total(ordered_items, delivery_location)`: Quick cart view with optional delivery
+- `format_order_summary(order_total_data)`: Pretty format for order breakdown
+- `validate_order_ready(ordered_items, delivery_type)`: Check if ready for payment
+
+*Delivery & Location:*
 - `calculate_delivery_fee(location)`: Get delivery cost
-- `create_order_record(user_id, amount, reference, details)`: Create order first
-- `generate_payment_link(amount, reference, email, delivery_details)`: Generate link last
+- `request_delivery_details()`: Ask for name, phone, address
+
+*Payment Processing:*
+- `create_order_record(user_id, amount, reference, details)`: Save to DB (call BEFORE payment link)
+- `generate_payment_link(amount, reference, email, delivery_details)`: Generate Paystack link (auto-retries 3x)
+- `verify_payment(reference)`: Check payment status
+
+*Error Recovery (if payment fails):*
+- `check_api_health()`: Check if Paystack is up
+- `get_manual_payment_instructions(amount, user_id, order_summary)`: Bank transfer fallback
+
+**CRITICAL WORKFLOW FOR CHECKOUT:**
+1. Call `get_order_total_with_delivery(ordered_items, delivery_location)` → Shows customer EXACT total (cart + delivery)
+2. Get delivery details if missing
+3. Create order record
+4. Generate payment link
+5. If link fails after retries → Use `get_manual_payment_instructions` for bank transfer
 
 **Task:** "{task_desc}"
 {context_str}
@@ -118,7 +175,8 @@ async def payment_worker_node(state: AgentState):
 
 **Context:**
 User: {state.get('user_id')} | Email: {customer_email}
-Order: {json.dumps(order_data, default=str)}
+Cart Items: {len(ordered_items)} items
+Order Data: {json.dumps(order_data, default=str)[:300]}...
 
 ### 🔒 SECURITY PROTOCOL (NON-NEGOTIABLE)
 1. **Payment Verification:**
@@ -146,6 +204,12 @@ Order: {json.dumps(order_data, default=str)}
 {WHATSAPP_FORMAT_RULES}
 """
 
+        # Tool enforcement
+        from app.utils.tool_enforcement import extract_required_tools_from_task, build_tool_enforcement_message
+        required_tools = extract_required_tools_from_task(task_desc, "payment_worker")
+        if required_tools:
+            system_prompt += build_tool_enforcement_message(required_tools)
+        
         response = await llm.ainvoke([SystemMessage(content=system_prompt)])
         final_output = response.content or ""
         tool_evidence = []
@@ -167,6 +231,81 @@ Order: {json.dumps(order_data, default=str)}
                     tool_res = await generate_payment_link.ainvoke(args)
                 elif name == "create_order_record":
                     tool_res = await create_order_record.ainvoke(args)
+                elif name == "verify_payment":
+                    tool_res = await verify_payment.ainvoke(args)
+                    
+                    # AUTO-TRIGGER: Notify manager on successful payment
+                    if tool_res and ("success" in str(tool_res).lower() or "paid" in str(tool_res).lower()):
+                        try:
+                            logger.info("💰 Payment verified! Notifying manager...")
+                            
+                            # Extract order details for notification
+                            order_id = args.get("reference", "N/A")
+                            customer_name = delivery_details.get("name", "Customer")
+                            customer_phone = delivery_details.get("phone", state.get("user_id", "Unknown"))
+                            
+                            # Build items summary from order_data or cart
+                            items_summary = ""
+                            if order_data.get("items"):
+                                items_list = []
+                                for item in order_data["items"][:3]:  # First 3 items
+                                    items_list.append(f"{item.get('name', 'Item')} x{item.get('quantity', 1)}")
+                                items_summary = ", ".join(items_list)
+                                if len(order_data["items"]) > 3:
+                                    items_summary += f" +{len(order_data['items'])-3} more"
+                            elif ordered_items:
+                                items_list = []
+                                for item in ordered_items[:3]:
+                                    items_list.append(f"{item.get('name', 'Item')} x{item.get('quantity', 1)}")
+                                items_summary = ", ".join(items_list)
+                                if len(ordered_items) > 3:
+                                    items_summary += f" +{len(ordered_items)-3} more"
+                            else:
+                                items_summary = "Order items"
+                            
+                            # Calculate total amount
+                            total_amount = args.get("amount", "N/A")
+                            if total_amount == "N/A" and order_data.get("total"):
+                                total_amount = f"₦{order_data['total']:,.2f}"
+                            elif isinstance(total_amount, (int, float)):
+                                total_amount = f"₦{total_amount:,.2f}"
+                            
+                            # Build delivery address
+                            delivery_address = delivery_details.get("address", "Pickup")
+                            if delivery_details.get("city"):
+                                delivery_address += f", {delivery_details['city']}"
+                            
+                            # Send notification to manager
+                            notification_result = await notify_manager.ainvoke({
+                                "order_id": order_id,
+                                "customer_name": f"{customer_name} ({customer_phone})",
+                                "items_summary": items_summary,
+                                "total_amount": total_amount,
+                                "delivery_address": delivery_address
+                            })
+                            
+                            logger.info(f"✅ Manager notified: {notification_result}")
+                            
+                        except Exception as notify_err:
+                            # Don't fail payment if notification fails
+                            logger.error(f"⚠️ Manager notification failed (payment still valid): {notify_err}")
+                    
+                elif name == "create_order_from_cart":
+                    tool_res = await create_order_from_cart.ainvoke(args)
+                elif name == "get_cart_total":
+                    tool_res = await get_cart_total.ainvoke(args)
+                elif name == "validate_order_ready":
+                    tool_res = await validate_order_ready.ainvoke(args)
+                elif name == "request_delivery_details":
+                    tool_res = await request_delivery_details.ainvoke(args)
+                elif name == "get_order_total_with_delivery":
+                    tool_res = await get_order_total_with_delivery.ainvoke(args)
+                elif name == "format_order_summary":
+                    tool_res = await format_order_summary.ainvoke(args)
+                elif name == "get_manual_payment_instructions":
+                    tool_res = await get_manual_payment_instructions.ainvoke(args)
+                elif name == "check_api_health":
+                    tool_res = await check_api_health.ainvoke(args)
                 
                 tool_evidence.append({"tool": name, "args": args, "output": str(tool_res)[:500]})
             

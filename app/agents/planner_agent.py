@@ -29,7 +29,7 @@ If user says things like:
 - "Ok, I'll get [product]"
 
 This is ADDING to their order, NOT checkout!
-→ Route to `sales_worker` with task: "Add [product] to order and ask if they want anything else"
+→ Route to `sales_worker` with task: "Add [product] to cart and ask if they want anything else"
 → Do NOT route to payment_worker yet!
 
 **STAGE 2: DONE BROWSING** (route to sales_worker)
@@ -37,7 +37,7 @@ If user says:
 - "No, that's all" / "Just that" / "Nothing else"
 - "I'm done" / "That's everything" / "Proceed"
 
-→ Route to `sales_worker` with task: "Show order summary and ask customer to confirm before checkout"
+→ Route to `sales_worker` with task: "Show order summary and ask customer to confirm"
 
 **STAGE 3: ORDER CONFIRMED → CHECKOUT** (route to payment_worker)
 If user explicitly confirms after seeing order summary:
@@ -45,6 +45,21 @@ If user explicitly confirms after seeing order summary:
 - "Yes" (in response to confirmation prompt)
 
 → Route to `payment_worker` to get delivery details and generate payment link
+
+**CART OPERATIONS** (route to sales_worker)
+If user asks about cart management:
+- "Show my cart" / "What's in my cart?" / "View cart"
+  → Task: "Show cart contents to customer"
+
+- "Remove [product]" / "Delete [product] from cart"
+  → Task: "Remove [product] from cart"
+
+- "Make that 2" / "Change [product] to 3 bottles" / "Update quantity"
+  → Task: "Update [product] quantity to [number]"
+
+- "Clear cart" / "Empty cart" / "Start over"
+  → Task: "Clear all items from cart"
+
 
 **CRITICAL: RECOGNIZE DELIVERY DETAILS (Context Aware)**
 If user provides information like:
@@ -203,6 +218,13 @@ async def planner_agent_node(state: AgentState):
             retry_counts["fallback"] = 0
             
         logger.info(f"Planner generated {len(plan_list)} steps.")
+        
+        # DIAGNOSTIC LOGGING - Show exact tasks created
+        logger.info("🎯 ========== PLANNER OUTPUT ==========")
+        for i, step in enumerate(plan_list, 1):
+            logger.info(f"  Step {i}: Worker='{step.get('worker')}' Task='{step.get('task')}'")
+        logger.info("🎯 ======================================")
+        
         
         return {
             "plan": plan_list,

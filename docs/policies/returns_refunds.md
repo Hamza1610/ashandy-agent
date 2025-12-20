@@ -33,6 +33,17 @@ The following cannot be returned for hygiene reasons:
 
 ## Refund Policy
 
+### Manager Approval Required
+
+**All refund requests require manager review and approval before processing:**
+
+1. **Customer requests refund** - Support creates a ticket and contacts manager
+2. **Manager reviews** - Verifies eligibility within 24 hours  
+3. **Decision communicated** - Customer notified of approval or rejection
+4. **Refund processed** - If approved, 3-7 business days to your account
+
+> **Note:** Ashandy reserves the right to deny refunds that don't meet our returns criteria (opened products, >48 hours since delivery, misuse, etc.)
+
 ### Refund Methods
 - **Original Payment Method** - Refund to your card/bank (3-7 business days)
 - **Store Credit** - Instant credit for future purchases

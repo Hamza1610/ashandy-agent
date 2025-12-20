@@ -1,7 +1,7 @@
 # 🤖 Ashandy AI Agent (Project Awéléwà)
 ### *Production-Grade Conversational Commerce System*
 
-![Version](https://img.shields.io/badge/Version-2.2-blue.svg) ![Status](https://img.shields.io/badge/Status-Production--Ready-green.svg) ![Stack](https://img.shields.io/badge/Tech-LangGraph%20%7C%20FastAPI%20%7C%20MCP-orange.svg)
+![Version](https://img.shields.io/badge/Version-2.4-blue.svg) ![Status](https://img.shields.io/badge/Status-Production--Ready-green.svg) ![Stack](https://img.shields.io/badge/Tech-LangGraph%20%7C%20FastAPI%20%7C%20MCP-orange.svg)
 
 **Winner of the Meta AI Developer Academy Hackathon 2025 (Loading...)**  
 **Built by Team HAI (Beneficiaries of RAIN Nigeria)**
@@ -14,7 +14,7 @@
 | Metric | Count | Details |
 | :--- | :---: | :--- |
 | **Total Autonomous Agents** | **8** | Supervisor, Planner, 4 Workers, Reviewer, Conflict Resolver |
-| **Tool Knowledge Registry** | **26** | All tools with validation rules |
+| **Active Tools** | **48** | Integrated across all workers with validation rules |
 | **Micro-Services** | **20** | Including checkpointer_service for state persistence |
 | **Tool Servers (MCP)** | **4** | POS, Payment, Knowledge, Logistics |
 | **Safety Layers** | **8** | Including Llama Guard, Rate Limits, & Reviewers |
@@ -54,9 +54,9 @@ graph TB
 | 🧠 **Planner** | Chain-of-Thought task decomposition | LLM reasoning |
 | 📦 **Dispatcher** | Routes tasks to workers | State machine |
 | 💄 **Sales Worker** | Product search, stock, upselling | 🛒 POS, 📚 Knowledge, 🎨 DINOv2 |
-| 💰 **Payment Worker** | Payment links, orders | 💳 Payment, 🚚 Logistics, 🛒 POS |
-| ⚙️ **Admin Worker** | Reports, approvals, broadcast | 🛒 POS, 📚 Knowledge, 📡 Meta API |
-| 💬 **Support Worker** | Complaints, tickets, escalation | 🛒 POS, 📡 Meta API, 📊 PostgreSQL |
+| 💰 **Payment Worker** | Payment links, orders, delivery fees | 💳 Payment, 🚚 Logistics, 🛒 POS |
+| ⚙️ **Admin Worker** | Reports, approvals, manual payments, order search | 🛒 POS, 📚 Knowledge, 📡 Meta API, 📱 SMS |
+| 💬 **Support Worker** | Tickets, STAR logging, manager relay, resolution | 🛒 POS, 📡 Meta API, 📊 PostgreSQL |
 | 📋 **Reviewer** | Anti-hallucination validation | 📖 Tool Knowledge Registry (26 tools) |
 | ⚖️ **Conflict Resolver** | Synthesizes multi-worker outputs | Priority: Payment > Support > Sales |
 
@@ -127,7 +127,7 @@ ashandy-agent/
 │   │   ├── sales_worker.py...
 │   ├── graphs/                 # LangGraph Workflow Definitions
 │   ├── services/               # 19 Business Logic Services
-│   ├── tools/                  # 19 LangChain Tools
+│   ├── tools/                  # 20 Production Tools (5 deprecated removed)
 │   └── routers/                # FastAPI Webhooks
 ├── mcp-servers/                # The 4 Micro-service Servers
 │   ├── pos-server/
