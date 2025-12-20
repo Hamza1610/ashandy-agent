@@ -1,4 +1,4 @@
-# Ashandy AI Agent - Complete System Documentation
+# Awéléwà - Complete System Documentation
 
 > **Version:** 2.4 • **Last Updated:** December 20, 2025  
 > **Author:** Team HAI
@@ -26,7 +26,7 @@
 
 ## 1. Executive Summary
 
-**Ashandy AI Agent** is a production-grade, multi-agent conversational commerce system for a Nigerian cosmetics store operating via WhatsApp and Instagram.
+**Awéléwà** is a production-grade, multi-agent conversational commerce system for a Nigerian cosmetics store operating via WhatsApp and Instagram.
 
 ### Core Technology Stack
 
