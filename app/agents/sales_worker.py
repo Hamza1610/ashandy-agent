@@ -5,6 +5,7 @@ from app.state.agent_state import AgentState
 from app.tools.product_tools import search_products, check_product_stock
 from app.tools.vector_tools import save_user_interaction, search_text_products, retrieve_user_memory
 from app.tools.visual_tools import process_image_for_search, detect_product_from_image
+from app.tools.cart_tools import add_to_cart, remove_from_cart, update_cart_quantity, get_cart_summary, clear_cart
 from app.services.policy_service import get_policy_for_query
 from app.services.llm_service import get_llm
 from app.services.conversation_summary_service import conversation_summary_service
@@ -17,6 +18,13 @@ logger = logging.getLogger(__name__)
 
 async def sales_worker_node(state: AgentState):
     """Executes sales tasks: product search, stock check, visual analysis."""
+    # EMERGENCY DEBUG: Log entry immediately to confirm function is called
+    try:
+        logger.info(f"🚨 SALES_WORKER ENTRY - Function called with state keys: {list(state.keys()) if state else 'None'}")
+    except Exception as log_err:
+        # Even logging failed - print to console
+        print(f"CRITICAL: Sales worker entry logging failed: {log_err}")
+        
     try:
         user_id = state.get("user_id")
         messages = state.get("messages", [])
@@ -44,6 +52,13 @@ async def sales_worker_node(state: AgentState):
         task_desc = current_step.get("task", "")
         task_id = current_step.get("id")
         logger.info(f"👷 SALES WORKER: Executing '{task_desc}' (ID: {task_id})")
+        
+        # DIAGNOSTIC LOGGING - Show task received
+        logger.info("🕵️ ========== SALES WORKER TASK ==========")
+        logger.info(f"  Task ID: {task_id}")
+        logger.info(f"  Task Description: '{task_desc}'")
+        logger.info(f"  User Message: '{last_user_msg[:100] if 'last_user_msg' in locals() else 'N/A'}...'")
+        logger.info("🕵️ ==========================================")
 
         # Visual context
         visual_info_block = ""
@@ -57,6 +72,7 @@ async def sales_worker_node(state: AgentState):
         if state.get("visual_matches"):
             visual_info_block += f"\n[Previous Analysis]: {state.get('visual_matches')}"
 
+        
         # Policy retrieval
         last_user_msg = state.get("last_user_message", "")
         if not last_user_msg and messages:
@@ -64,6 +80,40 @@ async def sales_worker_node(state: AgentState):
                 if hasattr(msg, 'content') and type(msg).__name__ == "HumanMessage":
                     last_user_msg = msg.content
                     break
+        
+        
+        # ========== CART OPERATIONS HANDLING (Direct State Management) ==========
+        # NOTE: Cart tools (add_to_cart, remove_from_cart, etc.) are NOT bound to LLM.
+        # Instead, we use direct cart_handlers.handle_cart_operations() for state mgmt.
+        # 
+        # WHY THIS APPROACH:
+        # 1. Cart ops require precise state updates (ordered_items in AgentState)
+        # 2. LLM tool calls can be unpredictable → state inconsistencies
+        # 3. Direct handlers ensure atomic cart updates without hallucination risks
+        # 4. Provides deterministic cart behavior critical for e-commerce accuracy
+        #
+        # FLOW: User message → cart_handlers → State update → LLM sees updated state
+        # TOOLS: Still defined in cart_tools.py for potential future API/manual use
+        # ==========================================================================
+        # Handle cart operations BEFORE LLM invocation for direct state control
+        from app.agents.cart_handlers import handle_cart_operations
+        
+        cart_response = await handle_cart_operations(
+            user_msg=last_user_msg,
+            task_desc=task_desc,
+            state=state,
+            user_id=user_id
+        )
+        
+        if cart_response:
+            # Cart operation handled directly - return immediately
+            logger.info(f"🛒 Cart operation completed: {cart_response[:80]}...")
+            return {
+                "worker_result": cart_response,
+                "ordered_items": state.get("ordered_items", []),
+                "messages": messages + [AIMessage(content=cart_response)]
+            }
+        # ==============================================
         
         policy_context = get_policy_for_query(last_user_msg + " " + task_desc)
         policy_block = f"\n### RELEVANT POLICIES\n{policy_context}\n" if policy_context else ""
@@ -139,8 +189,19 @@ IMPORTANT: Search for products matching this analysis! Use the detected text or 
         except Exception as e:
             logger.debug(f"Could not load preferences: {e}")
 
-        # Tools and LLM
-        tools = [search_products, check_product_stock, save_user_interaction, detect_product_from_image, retrieve_user_memory]
+        # Tools and LLM (including cart management)
+        tools = [
+            search_products, 
+            check_product_stock, 
+            save_user_interaction, 
+            detect_product_from_image, 
+            retrieve_user_memory,
+            add_to_cart,
+            remove_from_cart,
+            update_cart_quantity,
+            get_cart_summary,
+            clear_cart
+        ]
         llm = get_llm(model_type="fast", temperature=0.3).bind_tools(tools)
         
         system_prompt = f"""You are 'Awéléwà', AI Sales Manager for Ashandy Home of Cosmetics (Lagos, Nigeria).
@@ -177,27 +238,25 @@ You say: "That specific product isn't available right now, but great news! I hav
 - Strategic emojis: ✨ 💄 🛍️ 💕 💧
 - ALWAYS end with a call-to-action question
 
-### 🚀 AGGRESSIVE TOOL USAGE (SPEED IS CRITICAL)
-1. **SEARCH FIRST, ASK LATER**: 
-   - If the user mentions a category (e.g., "cream", "soap", "moisturizer"), you MUST call `search_products` IMMEDIATELY.
-   - **DO NOT** ask confirming questions like "What skin type?" or "Which brand?" initially.
-   - **ACTION**: Search for the generic term (e.g., `search_products("moisturizer")`).
-   - *Reason*: We must show options FAST. You can ask to refine *after* showing the initial list.
+### 🚀 TOOL USAGE RULES (CRITICAL)
 
-2. **PROBLEM = SEARCH**:
-   - If user mentions an issue (e.g., "acne", "dark spots"), DO NOT just give generic advice.
-   - **ACTION**: Call `search_products("acne")` IMMEDIATELY.
-   - *Failure*: Recommending generic ingredients without actual product links will be REJECTED.
+**Product Search:**
+1. If user mentions a category/product, call `search_products` IMMEDIATELY
+2. Show options FAST, refine later if needed
+3. NEVER recommend products without search results
+4. Prices MUST come from tool results
 
-3. **NEVER recommend products without calling `search_products` first!**
-   - You can ONLY mention products that appear in tool results.
-   - Prices MUST come from tool results.
+**Cart Management:**
+1. User says "I'll take X" or "Add X" → Call `add_to_cart(product_name="X", quantity=1)`
+2. User says "Remove X" → Call `remove_from_cart(product_name="X")`  
+3. User says "Make that 2" or "Change to 3" → Call `update_cart_quantity(product_name="X", quantity=2)`
+4. User says "What's in my cart?" → Call `get_cart_summary()`
+5. User says "Clear cart" → Call `clear_cart()`
 
-4. **NO medical advice** - redirect to store.
-
-5. **NEVER mention stock counts**.
-
-6. **NEVER simulate tool output!** Do NOT write text like "[POS Search Results]" - ONLY use the actual tool.
+**Important:**
+- NO medical advice - redirect to store
+- NEVER mention stock counts
+- NEVER simulate tool output
 
 ### CATEGORY RESTRICTION
 You ONLY sell **SKINCARE** products from our POS system.
@@ -237,6 +296,43 @@ Be warm, persuasive, CONCISE (2-3 sentences max).
 Transform tool data into a sales pitch, then ask a closing question!
 """
         # Use efficient summarization instead of last-X messages
+        
+        # ========== MANDATORY TOOL ENFORCEMENT ==========
+        # Extract required tools from task description
+        required_tools = []
+        task_lower = task_desc.lower()
+        
+        if "use add_to_cart tool" in task_lower:
+            required_tools.append("add_to_cart")
+        if "use get_cart_summary tool" in task_lower:
+            required_tools.append("get_cart_summary")
+        if "use remove_from_cart tool" in task_lower:
+            required_tools.append("remove_from_cart")
+        if "use update_cart_quantity tool" in task_lower:
+            required_tools.append("update_cart_quantity")
+        if "use clear_cart tool" in task_lower:
+            required_tools.append("clear_cart")
+        
+        # If task requires specific tools, FORCE them to be called
+        if required_tools:
+            tool_enforcement = f"""
+
+🚨 **CRITICAL: MANDATORY TOOL EXECUTION** 🚨
+Your task REQUIRES you to call these tools IMMEDIATELY:
+{', '.join([f'`{t}`' for t in required_tools])}
+
+You MUST call these tools BEFORE doing anything else.
+Failure to call these exact tools will result in task rejection.
+
+**Example**: If task says "Use add_to_cart tool for CeraVe":
+→ You MUST call: add_to_cart(product_name="CeraVe", quantity=1)
+→ Do NOT skip this or substitute with text output
+"""
+            system_prompt += tool_enforcement
+            logger.info(f"⚠️ ENFORCING TOOLS: {required_tools}")
+        
+        # ==================================================
+        
         efficient_context = await conversation_summary_service.get_efficient_context(
             session_id=state.get("session_id", user_id),
             messages=messages
@@ -244,9 +340,10 @@ Transform tool data into a sales pitch, then ask a closing question!
         conversation = [SystemMessage(content=system_prompt)] + list(efficient_context)
         response = await llm.ainvoke(conversation)
         
-        # Execute tools (parallel for independent tools, sequential for stateful)
+        # Execute tools and update cart state based on tool calls
         final_result = response.content
         tool_evidence = []
+        cart_updated = False
         
         if response.tool_calls:
             from app.utils.parallel_tools import execute_tools_smart
@@ -265,10 +362,88 @@ Transform tool data into a sales pitch, then ask a closing question!
                     from app.services.mcp_service import mcp_service
                     img_url = args.get("image_url")
                     return await mcp_service.call_tool("knowledge", "analyze_and_enrich", {"image_url": img_url}) if img_url else "Error: No image_url"
+                # ========== CART TOOLS (CRITICAL - PREVIOUSLY MISSING) ==========
+                elif name == "add_to_cart":
+                    return await add_to_cart.ainvoke(args)
+                elif name == "remove_from_cart":
+                    return await remove_from_cart.ainvoke(args)
+                elif name == "update_cart_quantity":
+                    return await update_cart_quantity.ainvoke(args)
+                elif name == "get_cart_summary":
+                    return await get_cart_summary.ainvoke(args)
+                elif name == "clear_cart":
+                    return await clear_cart.ainvoke(args)
+                # ==================================================================
                 return f"Unknown tool: {name}"
             
             # Execute with smart parallelization
             tool_evidence = await execute_tools_smart(response.tool_calls, execute_tool)
+            
+            # ========== UPDATE CART STATE BASED ON TOOL CALLS ==========
+            import re
+            for evidence in tool_evidence:
+                tool_name = evidence.get("tool")
+                tool_args = evidence.get("args", {})
+                tool_output = evidence.get("output", "")
+                
+                # Add to cart
+                if tool_name == "add_to_cart" and "✅ Added" in tool_output:
+                    # Extract product details from tool output
+                    match = re.search(r'Added \*(.+?)\* x(\d+) \(₦([\d,]+)', tool_output)
+                    if match:
+                        product_name = match.group(1).strip()
+                        quantity = int(match.group(2))
+                        price = float(match.group(3).replace(',', ''))
+                        
+                        # Check if product already in cart
+                        existing_item = next((item for item in ordered_items if item['name'].lower() == product_name.lower()), None)
+                        if existing_item:
+                            existing_item['quantity'] += quantity
+                        else:
+                            ordered_items.append({
+                                "name": product_name,
+                                "price": price,
+                                "quantity": quantity
+                            })
+                        cart_updated = True
+                        logger.info(f"🛒 Cart updated: Added {product_name} x{quantity}")
+                
+                # Remove from cart
+                elif tool_name == "remove_from_cart" and "✅ Removed" in tool_output:
+                    product_name = tool_args.get("product_name", "")
+                    ordered_items = [item for item in ordered_items if item['name'].lower() != product_name.lower()]
+                    cart_updated = True
+                    logger.info(f"🛒 Cart updated: Removed {product_name}")
+                
+                # Update quantity
+                elif tool_name == "update_cart_quantity" and "✅ Updated" in tool_output:
+                    product_name = tool_args.get("product_name", "")
+                    new_quantity = tool_args.get("quantity", 0)
+                    for item in ordered_items:
+                        if item['name'].lower() == product_name.lower():
+                            if new_quantity == 0:
+                                ordered_items.remove(item)
+                            else:
+                                item['quantity'] = new_quantity
+                            cart_updated = True
+                            logger.info(f"🛒 Cart updated: {product_name} quantity → {new_quantity}")
+                            break
+                
+                # Get cart summary (replace placeholder with actual cart)
+                elif tool_name == "get_cart_summary":
+                    if ordered_items:
+                        cart_list = "\n".join([f"• *{item['name']}* x{item['quantity']} (₦{item['price']:,.0f} each)" for item in ordered_items])
+                        subtotal = sum(item['price'] * item['quantity'] for item in ordered_items)
+                        actual_summary = f"🛒 **Your Cart:**\n{cart_list}\n\n**Subtotal:** ₦{subtotal:,.0f}"
+                        evidence['output'] = actual_summary
+                    else:
+                        evidence['output'] = "🛒 Your cart is empty! Browse our products and add items to get started."
+                
+                # Clear cart
+                elif tool_name == "clear_cart" and "✅" in tool_output:
+                    ordered_items = []
+                    cart_updated = True
+                    logger.info("🛒 Cart cleared")
             
             # CRITICAL: Pass tool results back to LLM for conversational formatting
             # DO NOT send raw tool output to customer!
@@ -292,29 +467,33 @@ Transform tool data into a sales pitch, then ask a closing question!
 
             if tool_outputs_text.strip():
                 # Second LLM call to format tool output into sales pitch
-                formatting_prompt = f"""Format this product data into a friendly sales response.
+                formatting_prompt = f"""Transform this product search data into a direct, friendly sales response.
 
 PRODUCT DATA:
 {tool_outputs_text}
 
-RULES:
-- DO NOT introduce yourself (no "I'm Awéléwà" or "I'm your assistant")
-- Jump straight into showing the products
-- Pick 2-3 BEST products max
-- Use *bold* for product names and prices  
-- Explain WHY each product is great
-- Use emojis: ✨ 💄 🛍️ 💕 💧
-- Keep it under 250 chars
-- End with a call-to-action question
-- NEVER include "ID:", "Source:", or technical data
+CRITICAL RULES:
+1. **NO META-COMMENTARY**: Do NOT say "Here's a friendly sales response" or "Here are some products" or any preamble
+2. **DIRECT OPENING**: Start IMMEDIATELY with the products, e.g., "Get glowing skin with..."
+3. **NO INTRODUCTIONS**: Never say "I'm Awéléwà" or "I'm your assistant"
+4. Pick 2-3 BEST products max
+5. Use *bold* for product names and prices  
+6. Explain WHY each product is great (benefits, not features)
+7. Use emojis: ✨ 💄 🛍️ 💕 💧
+8. Keep it under 250 chars total
+9. End with a call-to-action question
+10. NEVER include "ID:", "Source:", or technical data
 
-GOOD EXAMPLE:
-"I found some great options for you! ✨ The *NIVEA SUNSCREEN* at ₦18,000 gives amazing protection! 💕 Want me to add it to your order?"
+GOOD EXAMPLES:
+"Get glowing skin with *NIVEA SUNSCREEN* at ₦18,000 - amazing UV protection! 💕 Want me to add it?"
+"*CREIGHTON SALICYLIC SERUM* (₦7,000) tackles acne instantly! ✨ Ready to try it?"
 
-BAD EXAMPLE (don't do this):
-"I'm Awéléwà, your friendly AI sales assistant! 💄 I found..."
+BAD EXAMPLES (NEVER DO THIS):
+"Here's a friendly sales response:\n\n..."
+"I found some products for you!..."
+"I'm Awéléwà, your friendly AI sales assistant!..."
 
-NOW FORMAT THE RESPONSE:"""
+Output ONLY the sales response, nothing else:"""
                 try:
                     format_response = await get_llm(model_type="fast", temperature=0.5).ainvoke(
                         [HumanMessage(content=formatting_prompt)]
@@ -366,6 +545,11 @@ NOW FORMAT THE RESPONSE:"""
         }
 
     except Exception as e:
-        logger.error(f"Sales Worker Error: {e}", exc_info=True)
+        import traceback
+        tb_str = traceback.format_exc()
+        logger.error(f"🔥 SALES WORKER CRASHED: {e}", exc_info=True)
+        logger.error(f"Stacktrace:\n{tb_str}")
+        logger.error(f"State at time of error: {list(state.keys()) if state else 'No state'}")
         return {"worker_result": f"Error executing task: {str(e)}"}
+
 

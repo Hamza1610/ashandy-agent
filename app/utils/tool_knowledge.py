@@ -124,6 +124,71 @@ TOOL_KNOWLEDGE: Dict[str, Dict[str, Any]] = {
     },
     
     # =========================================================================
+    # CART MANAGEMENT TOOLS (Sales Worker)
+    # =========================================================================
+    "add_to_cart": {
+        "worker": "sales_worker",
+        "purpose": "Add product to shopping cart with quantity",
+        "expected_output": "Confirmation with product name, quantity, and price",
+        "success_indicators": ["Added", "✅", "cart", "₦"],
+        "failure_modes": {
+            "Product not found": "Search for product first to get accurate name and price",
+            "Invalid quantity": "Quantity must be greater than 0"
+        },
+        "validation_rules": [
+            "Cart additions are VALID evidence of order progress",
+            "Confirmation message with product details is acceptable output"
+        ]
+    },
+    
+    "remove_from_cart": {
+        "worker": "sales_worker",
+        "purpose": "Remove product from shopping cart",
+        "expected_output": "Removal confirmation",
+        "success_indicators": ["Removed", "✅"],
+        "failure_modes": {},
+        "validation_rules": [
+            "Removal confirmations are valid"
+        ]
+    },
+    
+    "update_cart_quantity": {
+        "worker": "sales_worker",
+        "purpose": "Update quantity of item in cart",
+        "expected_output": "Update confirmation with new quantity",
+        "success_indicators": ["Updated", "quantity", "✅"],
+        "failure_modes": {
+            "Quantity cannot be negative": "Use valid positive quantity or 0 to remove"
+        },
+        "validation_rules": [
+            "Quantity updates are valid cart management actions"
+        ]
+    },
+    
+    "get_cart_summary": {
+        "worker": "sales_worker",
+        "purpose": "Show current cart contents and total",
+        "expected_output": "Cart items list with subtotal",
+        "success_indicators": ["Cart", "Subtotal", "₦", "total"],
+        "failure_modes": {},
+        "validation_rules": [
+            "Cart summaries show order state - VALID evidence",
+            "May include delivery fee if location provided"
+        ]
+    },
+    
+    "clear_cart": {
+        "worker": "sales_worker",
+        "purpose": "Empty all items from cart",
+        "expected_output": "Clear confirmation",
+        "success_indicators": ["cleared", "✅"],
+        "failure_modes": {},
+        "validation_rules": [
+            "Cart clearing is valid operation"
+        ]
+    },
+    
+    # =========================================================================
     # PAYMENT WORKER TOOLS
     # =========================================================================
     "calculate_delivery_fee": {
@@ -169,7 +234,23 @@ TOOL_KNOWLEDGE: Dict[str, Dict[str, Any]] = {
         },
         "validation_rules": [
             "Order creation should precede payment link generation",
-            "Order record enables tracking and fulfillment"
+            "Returns formatted text summary and PDF file path"
+        ]
+    },
+    
+    "generate_weekly_report": {
+        "worker": "admin_worker",
+        "purpose": "Generate weekly business report (wrapper for comprehensive report)",
+        "expected_output": "PDF report file path and summary statistics",
+        "success_indicators": ["Report generated", "PDF", "Week"],
+        "failure_modes": {
+            "Data unavailable": "No data for the specified week",
+            "PDF error": "Check fpdf installation and permissions"
+        },
+        "validation_rules": [
+            "Wrapper function that calls generate_comprehensive_report",
+            "Automatically calculates week range from start date",  
+            "Returns same format as comprehensive report"
         ]
     },
     
@@ -211,6 +292,203 @@ TOOL_KNOWLEDGE: Dict[str, Dict[str, Any]] = {
         "validation_rules": [
             "This is a prompt template - always succeeds",
             "Response asking for details is VALID (not a failure)"
+        ]
+    },
+    
+    "verify_payment": {
+        "worker": "payment_worker",
+        "purpose": "Check status of a payment transaction",
+        "expected_output": "Payment status (success, pending, failed)",
+        "success_indicators": ["success", "paid", "verified", "status"],
+        "failure_modes": {
+            "Not found": "Verify payment reference",
+            "Still pending": "Ask customer to complete payment"
+        },
+        "validation_rules": [
+            "Payment verification is valid tool use"
+        ]
+    },
+    
+    "create_order_from_cart": {
+        "worker": "payment_worker",
+        "purpose": "Convert cart items to structured order data",
+        "expected_output": "Order data with items, subtotal, delivery type",
+        "success_indicators": ["items", "subtotal", "₦"],
+        "failure_modes": {
+            "Cart is empty": "Customer needs to add items first"
+        },
+        "validation_rules": [
+            "Order creation from cart is VALID evidence"
+        ]
+    },
+    
+    "get_cart_total": {
+        "worker": "payment_worker",
+        "purpose": "Calculate cart total with optional delivery fee",
+        "expected_output": "Cart summary with subtotal and optional delivery calculation",
+        "success_indicators": ["Subtotal", "₦", "Cart", "Delivery"],
+        "failure_modes": {},
+        "validation_rules": [
+            "Cart totals are valid order evidence",
+            "Delivery fee may be included if location provided"
+        ]
+    },
+    
+    "validate_order_ready": {
+        "worker": "payment_worker",
+        "purpose": "Check if order has required items for payment",
+        "expected_output": "Ready status with any issues listed",
+        "success_indicators": ["ready", "valid"],
+        "failure_modes": {
+            "Cart empty": "Items needed before checkout",
+            "Invalid items": "Check product data"
+        },
+        "validation_rules": [
+            "Order validation is valid checkout step"
+        ]
+    },
+    
+    "get_order_total_with_delivery": {
+        "worker": "payment_worker",
+        "purpose": "Calculate complete order total including cart and delivery fee",
+        "expected_output": "Complete breakdown showing cart subtotal, delivery fee, and grand total",
+        "success_indicators": ["Subtotal", "Delivery", "GRAND TOTAL", "₦"],
+        "failure_modes": {
+            "Cart empty": "Need items in cart first",
+            "Delivery location missing": "Need delivery address for fee calculation"
+        },
+        "validation_rules": [
+            "Complete order totals with delivery are VALID and PREFERRED for checkout",
+            "Shows customer exact amount they'll pay"
+        ]
+    },
+    
+    "format_order_summary": {
+        "worker": "payment_worker",
+        "purpose": "Format order total data into customer-friendly display",
+        "expected_output": "Formatted order breakdown",
+        "success_indicators": ["ORDER SUMMARY", "Items", "₦"],
+        "failure_modes": {},
+        "validation_rules": [
+            "Formatting utility - output is valid"
+        ]
+    },
+    
+    "get_manual_payment_instructions": {
+        "worker": "payment_worker",
+        "purpose": "Provide bank transfer instructions when Paystack fails",
+        "expected_output": "Bank details with account number, amount, reference",
+        "success_indicators": ["Bank Transfer", "Account", "Reference", "₦"],
+        "failure_modes": {},
+        "validation_rules": [
+            "Manual payment fallback is VALID when payment link fails",
+            "Provides alternative payment method"
+        ]
+    },
+    
+    "check_api_health": {
+        "worker": "payment_worker",
+        "purpose": "Check if payment APIs are operational",
+        "expected_output": "Status message about API availability",
+        "success_indicators": ["operational", "available", "status"],
+        "failure_modes": {},
+        "validation_rules": [
+            "Health check is valid diagnostic tool"
+        ]
+    },
+    
+    "notify_manager": {
+        "worker": "admin_worker",
+        "purpose": "Send SMS notification to manager about new order",
+        "expected_output": "Confirmation that manager was notified",
+        "success_indicators": ["Manager notified", "SMS sent", "Order"],
+        "failure_modes": {
+            "SMS not configured": "Twilio credentials missing - check .env",
+            "Manager phone missing": "Set ADMIN_PHONE_NUMBERS in settings"
+        },
+        "validation_rules": [
+            "Tool is for automated notifications after successful orders",
+            "Manager should receive order details and delivery info"
+        ]
+    },
+    
+    "get_pending_manual_payments": {
+        "worker": "admin_worker",
+        "purpose": "List customers awaiting manual payment verification",
+        "expected_output": "List of pending payments with customer, amount, reference",
+        "success_indicators": ["Pending", "Manual Payments", "₦"],
+        "failure_modes": {
+            "No pending": "No manual payments to review - this is normal"
+        },
+        "validation_rules": [
+            "Empty list is valid - means no pending verifications"
+        ]
+    },
+    
+    "confirm_manual_payment": {
+        "worker": "admin_worker",
+        "purpose": "Confirm bank transfer payment after verification",
+        "expected_output": "Confirmation with order update and customer notification",
+        "success_indicators": ["confirmed", "✅", "Customer notified", "PAID"],
+        "failure_modes": {
+            "Amount mismatch": "Verify amount matches order total exactly",
+            "Not found": "Check customer ID and reference are correct"
+        },
+        "validation_rules": [
+            "Requires exact amount match to prevent errors",
+            "Automatically notifies customer via WhatsApp"
+        ]
+    },
+    
+    "reject_manual_payment": {
+        "worker": "admin_worker",
+        "purpose": "Reject invalid/fake manual payment",
+        "expected_output": "Rejection confirmation with customer notification",
+        "success_indicators": ["rejected", "❌", "Customer notified"],
+        "failure_modes": {},
+        "validation_rules": [
+            "Requires reason to be provided to customer",
+            "Customer is automatically notified of rejection"
+        ]
+    },
+    
+    "get_recent_orders": {
+        "worker": "admin_worker",
+        "purpose": "View recent orders within time period",
+        "expected_output": "List of orders with status and details",
+        "success_indicators": ["Recent Orders", "Order #", "₦"],
+        "failure_modes": {
+            "No orders": "No orders in specified time period"
+        },
+        "validation_rules": [
+            "Empty result is valid - no orders in period"
+        ]
+    },
+    
+    "search_order_by_customer": {
+        "worker": "admin_worker",
+        "purpose": "Find all orders for specific customer",
+        "expected_output": "Customer's order history",
+        "success_indicators": ["Order History", "Total Paid", "₦"],
+        "failure_modes": {
+            "Not found": "No orders for this customer - may be new"
+        },
+        "validation_rules": [
+            "Phone number is normalized automatically",
+            "Shows total spending history"
+        ]
+    },
+    
+    "view_order_details": {
+        "worker": "admin_worker",
+        "purpose": "Get complete details of specific order",
+        "expected_output": "Full order info including delivery and payment status",
+        "success_indicators": ["Order #", "Customer", "Delivery Details"],
+        "failure_modes": {
+            "Not found": "Order ID doesn't exist"
+        },
+        "validation_rules": [
+            "Shows complete order lifecycle"
         ]
     },
     
@@ -257,7 +535,57 @@ TOOL_KNOWLEDGE: Dict[str, Dict[str, Any]] = {
         },
         "validation_rules": [
             "After escalation, stop handling the issue (manager takes over)",
-            "Inform customer that manager will contact them directly"
+           "Inform customer that manager will contact them directly"
+        ]
+    },
+    
+    "update_incident_star": {
+        "worker": "support_worker",
+        "purpose": "Log Task, Action, Result fields for STAR incident tracking",
+        "expected_output": "Confirmation that STAR fields were updated",
+        "success_indicators": ["updated", "✅", "incident"],
+        "failure_modes": {
+            "Incident not found": "Verify incident_id is correct"
+        },
+        "validation_rules": [
+            "MUST be called after creating ticket to log task and initial action",
+            "Should be updated when manager responds with result",
+            "Provides complete audit trail for quality improvement",
+            "Every support action should be logged for accountability"
+        ]
+    },
+    
+    "relay_to_manager": {
+        "worker": "support_worker",
+        "purpose": "Send question to manager via WhatsApp and notify customer to expect response",
+        "expected_output": "Confirmation message to send to customer",
+        "success_indicators": ["contacted", "team", "update", "ticket"],
+        "failure_modes": {
+            "Manager not configured": "Admin phone not set - ticket still created"
+        },
+        "validation_rules": [
+            "Use for order status queries, refund requests, or manager decisions",
+            "Include suggested_responses to guide manager's answer format",
+            "Customer should be told to expect manager update",
+            "Ticket number should be provided for customer reference"
+        ]
+    },
+    
+    "confirm_customer_resolution": {
+        "worker": "support_worker",
+        "purpose": "Mark incident as RESOLVED when customer confirms issue is fixed",
+        "expected_output": "Confirmation that ticket was marked resolved",
+        "success_indicators": ["RESOLVED", "✅", "marked"],
+        "failure_modes": {
+            "Not confirmed": "Customer must explicitly confirm resolution",
+            "Already escalated": "Cannot resolve ESCALATED incidents (manager handles)"
+        },
+        "validation_rules": [
+            "ONLY use when customer explicitly confirms ('Thanks!', 'All good!', etc.)",
+            "ONLY for simple issues (tracking, status, general questions)",
+            "DO NOT use for refunds (must stay ESCALATED until refund processes)",
+            "DO NOT use for damage claims or disputes",
+            "Requires customer_confirmed=True to proceed"
         ]
     },
     
@@ -430,17 +758,22 @@ WORKER_AUDIT_RULES: Dict[str, str] = {
    - These are NOT hallucinations - they came from the tool
    - Example: Search for "CeraVe" returns "No exact match. Similar: Nivea Lotion ₦4,500" → Nivea is VALID
 
-7. **Order flow confirmations** - "Added X to order", "Your total is Y" based on prior evidence
+7. **Cart management operations** - add_to_cart, remove_from_cart, get_cart_summary outputs are VALID evidence:
+   - "Added X to cart" confirmations are valid
+   - Cart totals with delivery fees are valid
+   - Quantity updates are valid
 
 REJECT if: Product names or prices don't match evidence AND response is NOT an approved exception""",
 
     "payment_worker": """### MODERATE VALIDATION
-1. Payment link must contain valid URL (paystack.com or similar)
-2. Amount must be correctly calculated (items + delivery fee)
+1. Payment link must contain valid URL (paystack.com or similar) OR manual payment instructions if API failed
+2. Amount must be correctly calculated (cart items + delivery fee)
 3. Delivery details collection is VALID even without tool evidence (it's a request to customer)
-4. Fee calculation must match tool output
-5. Order creation confirmation is expected before payment link
-REJECT if: Invalid payment URL, incorrect amount, or missing delivery validation""",
+4. Fee calculation must match tool output OR be calculated by get_order_total_with_delivery
+5. Order creation from cart (create_order_from_cart) is VALID evidence
+6. Cart total summaries (get_cart_total, get_order_total_with_delivery) are VALID evidence
+7. Manual payment fallback is ACCEPTABLE when payment link fails after retries
+REJECT if: Invalid payment amount, or missing required delivery validation""",
 
     "support_worker": """### EMPATHY-FOCUSED VALIDATION
 1. Response should acknowledge customer's feelings FIRST

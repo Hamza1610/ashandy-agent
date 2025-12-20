@@ -4,8 +4,9 @@ Support Worker: Handles customer complaints, issues, and escalations.
 Key principles:
 1. Empathy-first: Acknowledge feelings before problem-solving
 2. Incident tracking: Create ticket on complaint
-3. Manager escalation: After first failed resolution
-4. Handoff: Escalated issues go to manager, system returns to sales
+3. STAR logging: Document Task, Action, Result for every ticket
+4. Manager relay: Ask manager for order status, refunds, etc.
+5. Resolution: Support can close simple tickets when customer confirms
 """
 from app.state.agent_state import AgentState
 from app.services.llm_service import get_llm
@@ -39,9 +40,9 @@ async def lookup_order_history(user_id: str) -> str:
             if not orders:
                 return "No previous orders found for this customer."
             
-            output = "📦 *Recent Orders*\n\n"
+            output = "📦 *Recent Orders*\\n\\n"
             for o in orders:
-                output += f"• Order #{str(o[0])[:8]} - ₦{o[2]:,.0f} ({o[3]})\n"
+                output += f"• Order #{str(o[0])[:8]} - ₦{o[2]:,.0f} ({o[3]})\\n"
             return output
             
     except Exception as e:
@@ -76,10 +77,10 @@ async def escalate_to_manager(user_id: str, incident_id: str, reason: str) -> st
     # Notify manager
     if settings.ADMIN_PHONE_NUMBERS and len(settings.ADMIN_PHONE_NUMBERS) > 0:
         message = (
-            f"⚠️ *ESCALATION REQUIRED*\n\n"
-            f"📋 Ticket: #{incident_id[:8]}\n"
-            f"👤 Customer: {user_id}\n"
-            f"📝 Reason: {reason}\n\n"
+            f"⚠️ *ESCALATION REQUIRED*\\n\\n"
+            f"📋 Ticket: #{incident_id[:8]}\\n"
+            f"👤 Customer: {user_id}\\n"
+            f"📝 Reason: {reason}\\n\\n"
             f"Please contact the customer directly."
         )
         await meta_service.send_whatsapp_text(settings.ADMIN_PHONE_NUMBERS[0], message)
@@ -92,9 +93,23 @@ async def escalate_to_manager(user_id: str, incident_id: str, reason: str) -> st
     )
 
 
+# Import new tools from support_tools.py
+from app.tools.support_tools import (
+    update_incident_star,
+    relay_to_manager,
+    confirm_customer_resolution
+)
+
 # ============ SUPPORT WORKER NODE ============
 
-SUPPORT_TOOLS = [lookup_order_history, create_support_ticket, escalate_to_manager]
+SUPPORT_TOOLS = [
+    lookup_order_history,
+    create_support_ticket,
+    escalate_to_manager,
+    update_incident_star,  # NEW: STAR logging
+    relay_to_manager,  # NEW: Manager relay
+    confirm_customer_resolution  # NEW: Resolution confirmation
+]
 
 
 async def support_worker_node(state: AgentState):
@@ -104,8 +119,9 @@ async def support_worker_node(state: AgentState):
     Flow:
     1. Check for existing incident
     2. If new complaint: create ticket
-    3. Empathy response + attempt resolution
-    4. If cannot resolve: escalate to manager
+    3. Empathy response + log STAR
+    4. Relay to manager or escalate
+    5. Mark resolved if customer confirms
     """
     try:
         user_id = state.get("user_id")
@@ -138,14 +154,14 @@ Ticket: #{existing_incident['id'][:8]}
 Status: {existing_incident['status']}
 Original issue: {existing_incident['situation'][:200]}
 
-If this is a follow-up on the same issue, remind the manager.
+If this is a follow-up on the same issue, mention the ticket.
 If this is a NEW issue, create a new ticket.
 """
         
         # Retry context
         retry_count = state.get("retry_counts", {}).get(task_id, 0)
         critique = state.get("reviewer_critique", "")
-        retry_context = f"\n⚠️ PREVIOUS ATTEMPT REJECTED: {critique}\n" if retry_count > 0 else ""
+        retry_context = f"\\n⚠️ PREVIOUS ATTEMPT REJECTED: {critique}\\n" if retry_count > 0 else ""
         
         # Tools and LLM
         llm = get_llm(model_type="fast", temperature=0.3).bind_tools(SUPPORT_TOOLS)
@@ -153,45 +169,65 @@ If this is a NEW issue, create a new ticket.
         system_prompt = f"""You are the Customer Support Specialist for Ashandy Home of Cosmetics.
 
 ## YOUR MANDATE
-Handle complaints, issues, and concerns with EMPATHY FIRST.
+Handle complaints, issues, and concerns with EMPATHY FIRST in a manager-in-loop workflow.
 
 ## TOOLS
 - `lookup_order_history(user_id)`: Check customer's recent orders
-- `create_support_ticket(user_id, issue_summary)`: Create a tracking ticket
-- `escalate_to_manager(user_id, incident_id, reason)`: Escalate unresolvable issues
+- `create_support_ticket(user_id, issue_summary)`: Create tracking ticket  
+- `update_incident_star(incident_id, task, action, result)`: **REQUIRED** - Log actions for audit
+- `relay_to_manager(user_id, incident_id, question, suggested_responses)`: Ask manager, relay answer
+- `escalate_to_manager(user_id, incident_id, reason)`: Full escalation for complex issues
+- `confirm_customer_resolution(incident_id, resolution_summary, confirmed)`: Close simple tickets
 
 ## CURRENT TASK
 {task_desc}
 {incident_context}
 {retry_context}
 
-## GUIDELINES
+## MANAGER-IN-LOOP WORKFLOW
 
-### 1. EMPATHY FIRST
+### 1. EMPATHY FIRST (ALWAYS)
 Start with acknowledgment:
-- "I'm so sorry to hear about this..."
-- "I completely understand your frustration..."
-- "Thank you for bringing this to our attention..."
+- "I'm so sorry to hear about this..." 😔
+- "I completely understand your frustration..." 💕
+- "Thank you for bringing this to our attention..." 🙏
 
 ### 2. CREATE TICKET
-For every new complaint, create a ticket using `create_support_ticket`.
+For every complaint: `create_support_ticket(user_id, issue_summary)`
 
-### 3. ATTEMPT RESOLUTION
-Common resolutions:
-- Delivery delays → Check order status, provide update
-- Wrong product → Apologize, offer exchange/return info
-- Quality issue → Apologize, escalate for manager decision
+### 3. LOG STAR IMMEDIATELY ⚠️ REQUIRED
+After ticket: `update_incident_star(incident_id, task="[goal]", action="[what you did]")`
 
-### 4. ESCALATE WHEN NEEDED
-If you cannot resolve (refunds, replacements, disputes), use `escalate_to_manager`.
-Tell customer: "I've escalated this to our manager who will contact you directly."
+### 4. ROUTE TO MANAGER
 
-### 5. AFTER ESCALATION
-Do NOT continue handling the issue. The manager will take over directly.
+**Order Status** ("Where is my order?"):
+→ `relay_to_manager(user_id, incident_id, "Order status?", ["pending","confirmed","shipped","delivered"])`
+
+**Refund Request** (ALL refunds = manager approval):
+→ `relay_to_manager(user_id, incident_id, "Refund request: [reason]", ["approved","denied","need-proof"])`
+
+**Complex Issues**:  
+→ `escalate_to_manager(user_id, incident_id, "[detailed reason]")`
+
+### 5. UPDATE STAR AFTER MANAGER
+When manager responds:
+→ `update_incident_star(incident_id, action="Manager said: [X]", result="[outcome]")`
+
+### 6. RESOLUTION (Simple Only)
+
+**CAN resolve:** Customer says "Thanks!" + Simple issue (tracking/status)
+→ `confirm_customer_resolution(incident_id, "[summary]", customer_confirmed=True)`
+
+**CANNOT resolve:** Refunds, damage claims, disputes (stay ESCALATED)
+
+## CRITICAL POLICIES
+
+**Refunds:** ALL manager-approved. NEVER say "I can process your refund"
+**Returns:** 48 hours window. Outside window = ask manager for exception
+**Non-Returnable:** Opened makeup/skincare, used brushes
 
 {WHATSAPP_FORMAT_RULES}
 
-## CONTEXT
 Customer: {user_id}
 """
 
@@ -209,7 +245,7 @@ Customer: {user_id}
                 logger.info(f"Support Worker calling tool: {name}")
                 
                 # Inject user_id if not provided
-                if "user_id" not in args:
+                if "user_id" not in args and name in ["lookup_order_history", "create_support_ticket", "escalate_to_manager", "relay_to_manager"]:
                     args["user_id"] = user_id
                 
                 tool_output = ""
@@ -222,6 +258,12 @@ Customer: {user_id}
                     if existing_incident:
                         args["incident_id"] = existing_incident["id"]
                     tool_output = await escalate_to_manager.ainvoke(args)
+                elif name == "update_incident_star":
+                    tool_output = await update_incident_star.ainvoke(args)
+                elif name == "relay_to_manager":
+                    tool_output = await relay_to_manager.ainvoke(args)
+                elif name == "confirm_customer_resolution":
+                    tool_output = await confirm_customer_resolution.ainvoke(args)
                 
                 tool_evidence.append({
                     "tool": name,
@@ -232,7 +274,7 @@ Customer: {user_id}
             # Pass tool outputs back to LLM for conversational formatting
             tool_outputs_text = ""
             for item in tool_evidence:
-                tool_outputs_text += f"\n{item['output']}"
+                tool_outputs_text += f"\\n{item['output']}"
             
             if tool_outputs_text.strip():
                 formatting_prompt = f"""Format this support action result into a friendly response.

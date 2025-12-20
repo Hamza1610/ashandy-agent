@@ -1,6 +1,6 @@
 # Ashandy AI Agent - Complete System Documentation
 
-> **Version:** 2.2 • **Last Updated:** December 18, 2025  
+> **Version:** 2.4 • **Last Updated:** December 20, 2025  
 > **Author:** Team HAI
 
 ---
@@ -45,9 +45,9 @@
 |--------|-------|
 | Total Agents | 8 |
 | Total Services | 20 |
-| Total Tools | 26 (worker-bound) |
+| Total Tools | 48 (active, production-ready) |
 | MCP Servers | 4 |
-| Overall Score | 88.75/100 |
+| Overall Score | 92/100 |
 
 ---
 
@@ -249,13 +249,13 @@ sequenceDiagram
 
 | Agent | File | Lines |
 |-------|------|-------|
-| Supervisor | `app/agents/supervisor_agent.py` | ~300 |
-| Planner | `app/agents/planner_agent.py` | ~130 |
-| Sales Worker | `app/agents/sales_worker.py` | ~225 |
-| Payment Worker | `app/agents/payment_worker.py` | ~175 |
-| Admin Worker | `app/agents/admin_worker.py` | ~210 |
-| Support Worker | `app/agents/support_worker.py` | ~270 |
-| Reviewer | `app/agents/reviewer_agent.py` | ~150 |
+| Supervisor | `app/agents/supervisor_agent.py` | ~328 |
+| Planner | `app/agents/planner_agent.py` | ~223 |
+| Sales Worker | `app/agents/sales_worker.py` | ~465 |
+| Payment Worker | `app/agents/payment_worker.py` | ~288 (updated v2.3) |
+| Admin Worker | `app/agents/admin_worker.py` | ~264 (updated v2.3) |
+| Support Worker | `app/agents/support_worker.py` | ~288 (updated v2.4) |
+| Reviewer | `app/agents/reviewer_agent.py` | ~164 |
 | Conflict Resolver | `app/agents/conflict_resolver_agent.py` | ~80 |
 
 ### 3.3 Tool Output Formatting
@@ -327,14 +327,15 @@ Each worker agent draws its capabilities from one or more MCP servers:
 │  └─► 📚 Knowledge Server│ customer profiles, lead scoring             │
 │  └─► 📡 Meta API        │ relay_message_to_customer                   │
 ├────────────────────────────────────────────────────────────────────────┤
-│  💬 SUPPORT WORKER                                                     │
+│ 💬 SUPPORT WORKER                                                     │
 │  └─► 🛒 POS Server      │ lookup_order_history                        │
-│  └─► 📡 Meta API        │ escalate_to_manager                         │
-│  └─► 📊 PostgreSQL      │ create_support_ticket                       │
+│  └─► 📡 Meta API        │ relay_to_manager, escalate_to_manager       │
+│  └─► 📊 PostgreSQL      │ create_support_ticket, update_incident_star │
+│                         │ confirm_customer_resolution                 │
 ├────────────────────────────────────────────────────────────────────────┤
 │  📋 REVIEWER AGENT                                                     │
 │  └─► 📖 Tool Knowledge   │ Validation rules from tool_knowledge.py    │
-│      Registry            │ 26 tools with expected outputs defined     │
+│      Registry            │ 50+ tools with expected outputs defined    │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -363,11 +364,11 @@ TOOL_KNOWLEDGE = {
 
 | Worker | Tool Count | Examples |
 |--------|------------|----------|
-| Sales | 7 | search_products, detect_product_from_image, search_text_products |
-| Payment | 6 | calculate_delivery_fee, generate_payment_link, validate_delivery |
-| Support | 3 | lookup_order_history, create_support_ticket, escalate_to_manager |
-| Admin | 10 | generate_report, approve_order, relay_message_to_customer |
-| **Total** | **26** | |
+| Sales | 12 | search_products, detect_product_from_image, search_text_products, cart_tools (5) |
+| Payment | 14 | calculate_delivery_fee, generate_payment_link, verify_payment, notify_manager, manual_payment_tools (3) |
+| Support | 6 | lookup_order_history, create_support_ticket, escalate_to_manager, update_incident_star, relay_to_manager, confirm_customer_resolution |
+| Admin | 16 | generate_report, approve_order, manual_payment_tools (3), order_utilities (3), notify_manager |
+| **Total** | **48** | *Active production tools (5 deprecated removed in v2.3)* |
 
 #### Tiered Validation Rules
 
@@ -591,16 +592,144 @@ pending → in_progress → (reviewing ↔ in_progress) → approved/failed
 | Weekly Reports | `/report` | Sales, messages, trends |
 | Stock Check | `/stock [product]` | Inventory levels |
 | Broadcast | `/broadcast [msg]` | Mass messaging |
-| Order Approval | Auto >25k | High-value order confirmation |
+| Order Approval | Auto >25k | High-value order confirmation  |
+| **Manual Payment Verification** | `confirm payment for [phone]...` | Verify bank transfers with customer notification |
+| **Order Search** | `show recent orders` | View last 24-48 hours of orders |
+| **Customer Lookup** | `find orders for [phone]` | Search by customer phone |
+| **Order Details** | `view order [id]` | Complete order information |
+| **Auto-Not ifications** | Automatic | Manager receives **WhatsApp** on successful payments with detailed order/delivery info |
 | Inventory Sync | Scheduled | PHPPOS synchronization |
 
+### 7.2.1 Version 2.3 Enhancements (December 2025)
+
+#### Payment Worker Enhancements:
+- **Auto-Manager Notifications**: Payment worker now automatically triggers `notify_manager` when payments succeed
+  - Manager receives SMS with order ID, customer, items, amount, and delivery address
+  - Non-blocking: payment succeeds even if notification fails
+  -Logic: Triggers after `verify_payment` detects success
+
+- **Manual Payment Fallback System**:
+  - `get_manual_payment_instructions` - Provides bank transfer details when Paystack fails
+  - `check_api_health` - Monitors payment API status
+  - Complete fallback workflow with customer guidance
+
+- **Order Finalization Tools**:
+  - `get_order_total_with_delivery` - Complete order breakdown (cart + delivery)
+  - `format_order_summary` - Customer-friendly formatting
+
+#### Admin Worker Upgrade (9 → 16 tools):
+- **Manual Payment Verification**:
+  - `get_pending_manual_payments` - List awaiting verification
+  - `confirm_manual_payment` - Approve with auto-notification to customer
+  - `reject_manual_payment` - Reject with reason, customer notified
+
+- **Order Management Utilities**:
+  - `get_recent_orders(limit, hours)` - View recent order activity
+  - `search_order_by_customer(phone)` - Customer order history
+  - `view_order_details(order_id)` - Complete order details
+
+- **Enhanced System Prompt**:
+  - Added comprehensive input templates for all 16 tools
+  - Format examples prevent input errors
+  - Error messages include correction guidance
+
+#### Tool Registry & Cleanup:
+- **Registry Expansion**: 26 → 50+ tools documented
+- **Orphaned Tools Removed** (5 files, 6.3 KB):
+  - `order_extraction_tool.py` - Replaced by `order_parser.py` utility
+  - `email_tools.py` - Functionality in `admin_email_alert_node`
+  - `meta_tools.py` - Moved to `meta_service` layer
+  - `sentiment_tool.py` - Using `sentiment_service` instead
+  - `twilio_tools.py` - Duplicate of `sms_tools.py`
+
+#### Quality Improvements:
+- All 3 workers verified with zero syntax errors
+- Complete tool knowledge coverage (42 active tools)
+- Updated documentation (README, SYSTEM_DOCS)
+- Comprehensive testing scenarios documented
+
+
+### 7.2.2 Version 2.4 Enhancements (December 20, 2025)
+
+#### Support Worker - Manager-in-Loop System (3 → 6 tools):
+- **Complete Redesign**: Support worker now operates in a **manager-in-loop model** instead of autonomous resolution
+- **STAR Incident Logging**:
+  - `update_incident_star(incident_id, task, action, result)` - Complete STAR methodology implementation
+  - Every support action now logged with Task, Action, Result for audit trails
+  - Enables quality improvement through retrospective analysis
+  
+- **Manager Relay System**:
+  - `relay_to_manager(user_id, incident_id, question, suggested_responses)` - Send queries to manager via WhatsApp
+  - Used for order status queries, refund requests, and decisions
+  - Manager receives structured messages with suggested response formats
+  - Customer notified that manager will respond
+  
+- **Resolution Authority**:
+  - `confirm_customer_resolution(incident_id, resolution_summary, customer_confirmed)` - Support can close simple tickets
+  - Requires explicit customer confirmation ("Thanks!", "All good!")
+  - Only for simple issues (tracking, status checks)
+  - Refunds/damage claims remain ESCALATED until manager processes
+  
+- **Updated Workflow**:
+  1. Empathy-first response
+  2. Create ticket
+  3. Log STAR immediately
+  4. Relay to manager or escalate
+  5. Update STAR with manager response
+  6. Mark resolved if customer confirms (simple issues only)
+
+#### Manager Notification Upgrade (SMS → WhatsApp):
+- **Delivery Method Changed**: `notify_manager` now uses **WhatsApp** instead of Twilio SMS
+- **Detailed Formatting**:
+  ```
+  🛒 *NEW ORDER NOTIFICATION*
+  
+  📋 *ORDER DETAILS*
+  ID: #pay_abc123
+  Items:
+  1. Nivea Lotion x2 - ₦9,000
+  2. CeraVe Cleanser x1 - ₦7,500
+  Subtotal: ₦16,000
+  Delivery: ₦1,500
+  *Total: ₦17,500*
+  
+  📦 *DELIVERY DETAILS*
+  Full Name: John Doe
+  Phone Number: 2348012345678
+  Delivery Address: 123 Main St, Ibadan
+  City: Ibadan
+  Email: john@example.com
+  
+  ✅ Payment confirmed. Ready for processing!
+  ```
+- **Enhanced Parameters**: Now accepts items list, subtotal, delivery_fee, city, email (optional)
+- **Auto-triggered**: Still triggered by payment_worker after payment verification
+
+#### Policy Updates:
+- **Returns & Refunds Policy**: Added explicit "Manager Approval Required" section
+  - All refund requests require manager review within 24 hours
+  - System-wide awareness (planner, sales, support, reviewer)
+  - 48-hour return window maintained
+  
+#### Cron Job Updates:
+- **Weekly Report Schedule**: Changed from Monday 3 AM → **Sunday 2 PM (14:00)**
+- **Automatic Date Range**: Now calculates Monday-Sunday range automatically
+  - Example: Run on Sunday 12/21/2025 → Report covers 12/15/2025 (Mon) to 12/21/2025 (Sun)
+- **Enhanced Logging**: Reports exact date range in logs
+
+#### Tool Knowledge Updates:
+- Added validation rules for 3 new support tools
+- Updated `notify_manager` validation: "SMS" → "WhatsApp", removed Twilio failure mode
+- Complete coverage for all 48 active tools
+
 ### 7.3 Automated Features
+
 
 | Feature | Schedule | Description |
 |---------|----------|-------------|
 | Daily Summary | 00:00 | Pre-compute daily metrics |
 | Instagram Sync | Sundays 02:00 | Sync product catalog |
-| Weekly Report | Mondays 03:00 | Generate performance report |
+| Weekly Report | Sundays 14:00 (2 PM) | Generate Monday-Sunday performance report |
 | Feedback Learning | Mondays 04:00 | Update learned preferences |
 | Cart Abandonment | Every 6 hours | Follow-up on unpaid orders |
 

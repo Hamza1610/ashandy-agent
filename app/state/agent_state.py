@@ -8,6 +8,14 @@ from langgraph.graph import add_messages
 import operator
 
 
+def replace_dict(left: Optional[Dict], right: Optional[Dict]) -> Optional[Dict]:
+    """Replacement reducer: new dict completely replaces old dict.
+    Used for task_statuses and retry_counts to prevent stale state."""
+    if right is not None:
+        return right
+    return left if left is not None else {}
+
+
 class AgentState(TypedDict):
     """
     Unified state schema for all agents in the system.
@@ -125,11 +133,13 @@ class AgentState(TypedDict):
     """Result from conflict resolver when multiple workers have outputs"""
 
     # ========== System 2.0: Pub/Sub & Review ==========
-    task_statuses: Annotated[Optional[Dict[str, str]], operator.or_]
-    """Status of each task ID: pending, in_progress, reviewing, approved, failed"""
+    task_statuses: Annotated[Optional[Dict[str, str]], replace_dict]
+    """Status of each task ID: pending, in_progress, reviewing, approved, failed.
+    Uses replace_dict reducer to prevent stale states from persisting."""
 
-    retry_counts: Annotated[Optional[Dict[str, int]], operator.or_]
-    """Number of retries for each task ID"""
+    retry_counts: Annotated[Optional[Dict[str, int]], replace_dict]
+    """Number of retries for each task ID.
+    Uses replace_dict reducer to prevent stale retry counts from persisting."""
 
     reviewer_critique: Optional[str]
     """Feedback from the Reviewer agent for the current task"""

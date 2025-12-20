@@ -41,14 +41,33 @@ async def weekly_instagram_sync_job():
 
 
 async def weekly_report_job():
-    """Generate weekly report every Monday at 3 AM."""
+    """
+    Generate weekly report every Sunday at 2 PM.
+    
+    Automatically calculates Monday-Sunday range for the completed week.
+    Example: Run on Sunday 12/21/2025 → Report covers 12/15/2025 (Mon) to 12/21/2025 (Sun)
+    """
     try:
         logger.info("Running weekly report generation...")
+        
+        # Calculate the week range (Monday to Sunday)
+        today = datetime.now()
+        # Today is Sunday, so get the Monday of this week (6 days ago)
+        monday_of_week = today - timedelta(days=6)
+        sunday_of_week = today
+        
+        # Format dates as MM/DD/YYYY
+        start_date = monday_of_week.strftime("%m/%d/%Y")
+        end_date = sunday_of_week.strftime("%m/%d/%Y")
+        
+        logger.info(f"Generating weekly report for {start_date} to {end_date}")
+        
         result = await generate_comprehensive_report.ainvoke({
-            "start_date": "last week",
-            "end_date": "today"
+            "start_date": start_date,
+            "end_date": end_date
         })
-        logger.info(f"Weekly report generated. Length: {len(result)} chars")
+        
+        logger.info(f"Weekly report generated for week {start_date}-{end_date}. Length: {len(result)} chars")
     except Exception as e:
         logger.error(f"Weekly report failed: {e}")
 
@@ -135,7 +154,7 @@ def configure_scheduler():
                       id="daily_summary", name="Daily Summary", replace_existing=True)
     scheduler.add_job(weekly_instagram_sync_job, CronTrigger(day_of_week="sun", hour=2, minute=0),
                       id="weekly_instagram_sync", name="IG Sync", replace_existing=True)
-    scheduler.add_job(weekly_report_job, CronTrigger(day_of_week="mon", hour=3, minute=0),
+    scheduler.add_job(weekly_report_job, CronTrigger(day_of_week="sun", hour=14, minute=0),
                       id="weekly_report", name="Weekly Report", replace_existing=True)
     scheduler.add_job(weekly_feedback_learning_job, CronTrigger(day_of_week="mon", hour=4, minute=0),
                       id="weekly_feedback_learning", name="Feedback Learning", replace_existing=True)
