@@ -50,14 +50,14 @@ graph TB
 
 | Agent | Role | Power Source (MCP) |
 |-------|------|-------------------|
-| 🔒 **Supervisor** | Gatekeeper - Safety, cache, admin detection | Llama Guard, Redis |
-| 🧠 **Planner** | Chain-of-Thought task decomposition | LLM reasoning |
+| 🔒 **Supervisor** | Gatekeeper - Safety, cache, admin detection | Llama Guard 4, Redis |
+| 🧠 **Planner** | Chain-of-Thought task decomposition | Llama 4 Scout |
 | 📦 **Dispatcher** | Routes tasks to workers | State machine |
-| 💄 **Sales Worker** | Product search, stock, upselling | 🛒 POS, 📚 Knowledge, 🎨 DINOv2 |
+| 💄 **Sales Worker** | Product search, stock, upselling | 🛒 POS, 📚 Knowledge, 🎨 DINOv2, Llama 4 Scout, Llama 4 Maverick (Vision)|
 | 💰 **Payment Worker** | Payment links, orders, delivery fees | 💳 Payment, 🚚 Logistics, 🛒 POS |
-| ⚙️ **Admin Worker** | Reports, approvals, manual payments, order search | 🛒 POS, 📚 Knowledge, 📡 Meta API, 📱 SMS |
+| ⚙️ **Admin Worker** | Reports, approvals, manual payments, order search | 🛒 POS, 📚 Knowledge, 📡 Meta API, Llama 4 Scout |
 | 💬 **Support Worker** | Tickets, STAR logging, manager relay, resolution | 🛒 POS, 📡 Meta API, 📊 PostgreSQL |
-| 📋 **Reviewer** | Anti-hallucination validation | 📖 Tool Knowledge Registry (26 tools) |
+| 📋 **Reviewer** | Anti-hallucination validation | 📖 Tool Knowledge Registry (26 tools), Llama 3.1 8B |
 | ⚖️ **Conflict Resolver** | Synthesizes multi-worker outputs | Priority: Payment > Support > Sales |
 
 ---
@@ -75,7 +75,7 @@ graph TB
 
 ## 🚀 Key Features
 ### 🛒 Conversational Commerce & Visual Search
-* **Llama 4 Vision:** Users upload images; the system uses **Meta SAM + DINOv2** embeddings to find the exact product in the inventory.
+* **Llama 4 Vision:** Users upload images; the system uses **Meta SAM + DINOv2** embeddings to find the exact product in the inventory and **Llama 4 Maverick + OCR** as fallback to extract text from the product for text-search.
 
 * **Cross-Platform:** Works seamlessly on **WhatsApp** and **Instagram** via Meta Graph API.
 
@@ -88,7 +88,7 @@ graph TB
 * **Zone C (Outskirts):** ₦3,000
 
 
-* **Automated Dispatch:** Sends SMS to riders via Twilio upon payment confirmation.
+* **Automated Dispatch:** Sends **Order + Delivery** details to the manager via WhatsApp upon payment confirmation.
 
 ## 🛡️ Security & Compliance (NDPR)
 * **7-Layer Defense:** Includes Rate Limiting (60/min), HMAC Signature verification, and Prompt Injection shields.
@@ -106,7 +106,7 @@ graph TB
 ## 🛠️ Technology Stack
 * **Orchestration:** LangGraph + LangChain
 * **Backend:** Python FastAPI
-* **LLM Inference:** Meta Llama 4 (70B/8B)
+* **LLM Inference:** Meta Llama 4 Scout, Meta Llama 4 Maverick (Vision), Meta Llama 3.1 8B
 * **Database:**
   * **Vector:** Pinecone (Semantic Memory)
   * **Cache:** Redis Stack (State Persistence + RediSearch)
