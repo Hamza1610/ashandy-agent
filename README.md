@@ -178,6 +178,6 @@ curl -X POST http://localhost:8000/api/test/message \
 * **Israel Ayeni:** Product Manager 
 * **Ibrahim Abdulwahab:** Growth Lead
 
-**License:** MIT | **Documentation:** `/docs` endpoint
+**License:** Dual | **Documentation:** `/docs` endpoint
 
 ```
