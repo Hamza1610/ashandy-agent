@@ -1,11 +1,12 @@
 """
-Admin Worker: LLM-powered agent for Manager-facing operations.
-Uses Llama 4 Scout for advanced reasoning with strict tool scope.
+Admin Worker: Reports, high-value approvals, broadcasting, incident management.
 """
 from app.state.agent_state import AgentState
 from app.services.llm_service import get_llm
-from langchain_core.messages import SystemMessage, AIMessage
+from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
 from app.utils.config import settings
+from app.utils.input_validation import MAX_MESSAGE_LENGTH
+from app.utils.sanitization import sanitize_message
 from app.utils.brand_voice import WHATSAPP_FORMAT_RULES
 from app.tools.report_tool import generate_comprehensive_report, generate_weekly_report
 from app.tools.incident_tools import report_incident
@@ -50,6 +51,8 @@ async def admin_worker_node(state: AgentState):
     """Executes admin tasks: reports, approvals, customer messaging, incident handling."""
     plan = state.get("plan", [])
     task_statuses = state.get("task_statuses", {})
+    messages = state.get("messages", [])
+    user_id = state.get("user_id", "Unknown")
     
     # Find active task
     current_step = None
@@ -70,6 +73,22 @@ async def admin_worker_node(state: AgentState):
     task_desc = current_step.get("task", "")
     task_id = current_step.get("id")
     logger.info(f"🛡️ ADMIN WORKER: Processing '{task_desc}' (ID: {task_id})")
+
+    # Extract last user message for sanitization
+    last_user_msg = ""
+    for msg in reversed(messages):
+        if isinstance(msg, HumanMessage):
+            last_user_msg = msg.content
+            break
+    
+    # SECURITY: Input validation and truncation
+    if len(last_user_msg) > MAX_MESSAGE_LENGTH:
+        logger.warning(f"⚠️ Admin worker: Input truncated for {user_id}: {len(last_user_msg)} chars → {MAX_MESSAGE_LENGTH}")
+        last_user_msg = last_user_msg[:MAX_MESSAGE_LENGTH] + "... [Message truncated for safety]"
+    
+    # Sanitize message content
+    task_desc = sanitize_message(task_desc) # Sanitize the task description which might contain user input
+    last_user_msg = sanitize_message(last_user_msg) # Sanitize the raw user message
     
     try:
         # Retry context

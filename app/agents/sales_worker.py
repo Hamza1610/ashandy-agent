@@ -81,6 +81,17 @@ async def sales_worker_node(state: AgentState):
                     last_user_msg = msg.content
                     break
         
+        # SECURITY: Input validation and truncation
+        from app.utils.input_validation import MAX_MESSAGE_LENGTH
+        from app.utils.sanitization import sanitize_message
+        
+        if len(last_user_msg) > MAX_MESSAGE_LENGTH:
+            logger.warning(f"⚠️ Sales worker: Input truncated for {user_id}: {len(last_user_msg)} chars → {MAX_MESSAGE_LENGTH}")
+            last_user_msg = last_user_msg[:MAX_MESSAGE_LENGTH] + "... [Message truncated for safety]"
+        
+        # Sanitize message content (XSS protection)
+        last_user_msg = sanitize_message(last_user_msg)
+        
         
         # ========== CART OPERATIONS HANDLING (Direct State Management) ==========
         # NOTE: Cart tools (add_to_cart, remove_from_cart, etc.) are NOT bound to LLM.

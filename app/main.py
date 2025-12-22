@@ -17,6 +17,7 @@ from slowapi.util import get_remote_address
 
 from app.utils.config import settings
 from app.routers import health, webhooks
+from app.middleware.security_logging import SecurityLoggingMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +220,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Security Logging Middleware (AWS CloudWatch compatible)
+app.add_middleware(SecurityLoggingMiddleware)
 
 # Rate limiting
 app.state.limiter = limiter

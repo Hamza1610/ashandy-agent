@@ -65,8 +65,9 @@ async def payment_worker_node(state: AgentState):
         delivery_details = order_data.get("delivery_details", {})
         
         # Try to extract delivery details from the last user message
-        messages = state.get("messages", [])
+        # === Extract last user message ===
         last_user_msg = ""
+        messages = state.get("messages", [])
         for msg in reversed(messages):
             if hasattr(msg, "type") and msg.type == "human":
                 last_user_msg = msg.content
@@ -74,6 +75,18 @@ async def payment_worker_node(state: AgentState):
             if msg.__class__.__name__ == "HumanMessage":
                 last_user_msg = msg.content
                 break
+        
+        # SECURITY: Input validation and truncation
+        from app.utils.input_validation import MAX_MESSAGE_LENGTH
+        from app.utils.sanitization import sanitize_message
+        
+        user_id = state.get("user_id", "unknown_user") # Assuming user_id is available in state
+        if len(last_user_msg) > MAX_MESSAGE_LENGTH:
+            logger.warning(f"⚠️ Payment worker: Input truncated for {user_id}: {len(last_user_msg)} chars → {MAX_MESSAGE_LENGTH}")
+            last_user_msg = last_user_msg[:MAX_MESSAGE_LENGTH] + "... [Message truncated for safety]"
+        
+        # Sanitize message content
+        last_user_msg = sanitize_message(last_user_msg)
         
         if last_user_msg:
             from app.tools.delivery_validation_tools import validate_and_extract_delivery

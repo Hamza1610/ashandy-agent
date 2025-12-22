@@ -17,6 +17,37 @@ logger = logging.getLogger(__name__)
 limiter = Limiter(key_func=get_remote_address)
 
 
+def verify_meta_signature(payload: bytes, signature: str) -> bool:
+    """Verify Meta (WhatsApp/Instagram) webhook signature using HMAC SHA256."""
+    if not hasattr(settings, 'META_APP_SECRET') or not settings.META_APP_SECRET:
+        logger.warning("META_APP_SECRET not configured, skipping signature verification")
+        return True  # Allow in development mode
+    
+    try:
+        expected_sig = hmac.new(
+            settings.META_APP_SECRET.encode('utf-8'),
+            payload,
+            hashlib.sha256
+        ).hexdigest()
+        
+        # Signature comes as "sha256=<hash>"
+        if signature.startswith('sha256='):
+            provided_sig = signature[7:]  # Remove "sha256=" prefix
+        else:
+            provided_sig = signature
+        
+        # Constant-time comparison to prevent timing attacks
+        is_valid = hmac.compare_digest(expected_sig, provided_sig)
+        
+        if not is_valid:
+            logger.warning(f"Meta webhook signature verification FAILED")
+        
+        return is_valid
+    except Exception as e:
+        logger.error(f"Signature verification error: {e}")
+        return False
+
+
 def verify_paystack_signature(payload: bytes, signature: str) -> bool:
     """Verify Paystack webhook signature using HMAC SHA512."""
     if not settings.PAYSTACK_SECRET_KEY:
@@ -50,10 +81,12 @@ async def verify_whatsapp_webhook(request: Request):
 @router.post("/whatsapp")
 @limiter.limit("60/minute")
 async def receive_whatsapp_webhook(request: Request, payload: WhatsAppWebhookPayload):
-    """Process incoming WhatsApp messages."""
+    """Process incoming WhatsApp messages with security validation."""
     from app.graphs.main_graph import app as agent_app
     from langchain_core.messages import HumanMessage
     from app.services.meta_service import meta_service
+    from app.utils.input_validation import validate_webhook_message
+    from app.utils.file_validation import validate_and_log_image
 
     try:
         if not payload.entry or not payload.entry[0].changes:
@@ -73,6 +106,47 @@ async def receive_whatsapp_webhook(request: Request, payload: WhatsAppWebhookPay
         if not messages:
             return {"status": "no_messages"}
 
+        message = messages[0]
+        from_phone = message.from_ # The user's phone number
+        
+        # Extract message content
+        content = ""
+        msg_type = message.type
+        
+        user_message_content = ""
+        image_url = None
+        visual_analysis = None  # Pre-analyzed product info
+        
+        if msg_type == "text":
+            text_obj = message.text
+            user_message_content = text_obj.body if text_obj else ""
+            # Validate message length
+            user_message_content = validate_webhook_message(user_message_content)
+        elif msg_type == "image":
+            # Handle Image
+            img_obj = message.image
+            media_id = img_obj.id if img_obj else None
+            caption = img_obj.caption if img_obj else ""
+            user_message_content = caption or ""
+            # Validate caption length
+            user_message_content = validate_webhook_message(user_message_content)
+            
+            # Resolve URL
+            fetched_url = await meta_service.get_media_url(media_id)
+            if fetched_url:
+                # SECURITY: Validate image before processing
+                is_valid, error_msg = await validate_and_log_image(fetched_url, from_phone)
+                
+                if is_valid:
+                    image_url = fetched_url
+                else:
+                    # Invalid image - notify user
+                    logger.warning(f"Invalid image from {from_phone}: {error_msg}")
+                    await meta_service.send_whatsapp_text(
+                        from_phone,
+                        f"⚠️ Image validation failed: {error_msg}\n\nPlease send a clear photo of a cosmetic/skincare product."
+                    )
+                    return {"status": "invalid_image", "error": error_msg}
         message = messages[0]
         from_phone = message.from_ # The user's phone number
         
@@ -195,6 +269,7 @@ async def receive_whatsapp_webhook(request: Request, payload: WhatsAppWebhookPay
 
 
 @router.post("/twilio/whatsapp")
+@limiter.limit("60/minute")  # Rate limiting added
 async def receive_twilio_webhook(request: Request, background_tasks: BackgroundTasks):
     """
     Process incoming WhatsApp messages via Twilio (Async Pattern).
@@ -354,6 +429,7 @@ async def verify_instagram_webhook(request: Request):
 
 
 @router.post("/instagram")
+@limiter.limit("60/minute")  # Rate limiting added
 async def receive_instagram_webhook(payload: InstagramWebhookPayload):
     """Process incoming Instagram messages including story/post replies."""
     from app.graphs.main_graph import app as graph_app
@@ -479,6 +555,7 @@ async def receive_instagram_webhook(payload: InstagramWebhookPayload):
 
 
 @router.post("/paystack")
+@limiter.limit("100/minute")  # Higher limit for payment webhooks
 async def receive_paystack_webhook(request: Request):
     """Handle Paystack payment webhooks with signature verification."""
     from app.services.meta_service import meta_service
@@ -501,6 +578,33 @@ async def receive_paystack_webhook(request: Request):
             reference = data.get("reference")
             amount_naira = data.get("amount", 0) / 100
             customer_email = data.get("customer", {}).get("email", "N/A")
+            
+            # FIX: Update RFM scores (monetary + order frequency)
+            from app.services.profile_service import profile_service
+            user_id = reference  # Reference is the user_id
+            
+            try:
+                # Extract category from order if available
+                order = await get_order_by_reference.ainvoke(reference)
+                category = None
+                
+                if isinstance(order, dict) and order.get("items"):
+                    # Get first item's category as representative category
+                    items = order.get("items", [])
+                    if items and isinstance(items[0], dict):
+                        category = items[0].get("category", "cosmetics")
+                
+                # UPDATE RFM: This increments total_purchases, order_count, updates last_interaction
+                await profile_service.update_on_purchase(
+                    user_id=user_id,
+                    amount=amount_naira,
+                    category=category
+                )
+                logger.info(f"✅ RFM updated: {user_id} purchased ₦{amount_naira:,.2f}")
+                
+            except Exception as e:
+                logger.error(f"Failed to update RFM on purchase: {e}")
+                # Don't fail webhook if RFM update fails
             
             if settings.ADMIN_PHONE_NUMBERS:
                 manager_phone = settings.ADMIN_PHONE_NUMBERS[0]

@@ -129,6 +129,25 @@ async def support_worker_node(state: AgentState):
         plan = state.get("plan", [])
         task_statuses = state.get("task_statuses", {})
         
+        # Extract last user message
+        last_user_msg = ""
+        for msg in reversed(messages):
+            if hasattr(msg, 'type') and msg.type == 'human':
+                if hasattr(msg, 'content') and type(msg).__name__ == "HumanMessage":
+                    last_user_msg = msg.content
+                    break
+        
+        # SECURITY: Input validation and truncation
+        from app.utils.input_validation import MAX_MESSAGE_LENGTH, MAX_INCIDENT_LENGTH
+        from app.utils.sanitization import sanitize_message
+        
+        if len(last_user_msg) > MAX_MESSAGE_LENGTH:
+            logger.warning(f"⚠️ Support worker: Input truncated for {user_id}: {len(last_user_msg)} chars → {MAX_MESSAGE_LENGTH}")
+            last_user_msg = last_user_msg[:MAX_MESSAGE_LENGTH] + "... [Message truncated for safety]"
+        
+        # Sanitize message content
+        last_user_msg = sanitize_message(last_user_msg)
+        
         # Find active task
         current_task = None
         for step in plan:

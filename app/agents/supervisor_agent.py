@@ -136,7 +136,29 @@ async def supervisor_agent_node(state: AgentState):
                 "messages": [AIMessage(content=msg)]
             }
 
-        # Safety check (Llama Guard)
+        # Security check 1: Prompt Injection Detection
+        from app.utils.prompt_security import detect_prompt_injection, log_injection_attempt
+        
+        injection_result = detect_prompt_injection(content_text, strict=False, log_attempts=True)
+        
+        if injection_result['detected'] and injection_result['risk_level'] == 'critical':
+            # Block critical injection attempts
+            logger.error(f"🚨 CRITICAL prompt injection BLOCKED for {user_id}")
+            log_injection_attempt(user_id, content_text, injection_result, platform)
+            
+            return {
+                "messages": [AIMessage(content=(
+                    "I'm unable to process that request. "
+                    "I can only help with cosmetics products, orders, and customer support. "
+                    "How may I assist you today?"
+                ))],
+                "blocked": True
+            }
+        elif injection_result['detected']:
+            # Log but allow high/medium risk (monitored by Llama Guard next)
+            log_injection_attempt(user_id, content_text, injection_result, platform)
+        
+        # Security check 2: Llama Guard (Content Filtering)
         if len(clean_text) > 5 and not is_admin:
             safety_res = await check_safety.ainvoke(content_text)
             if safety_res.lower().startswith("unsafe"):
